@@ -1,0 +1,27 @@
+{
+  "name": "purchase-sales-management",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Purchase, sales, VAT, withholding and inventory management (Ethiopian tax rules)",
+  "type": "module",
+  "scripts": {
+    "setup": "npm install && npm --prefix purchase-backend install",
+    "dev": "node scripts/run.mjs dev",
+    "dev:frontend": "next dev -p 3000",
+    "dev:backend": "npm --prefix purchase-backend run dev",
+    "build": "next build && npm --prefix purchase-backend run build",
+    "start": "node scripts/run.mjs start",
+    "test": "npm --prefix purchase-backend test",
+    "import": "npm --prefix purchase-backend run import --",
+    "demo": "npm --prefix purchase-backend run demo",
+    "demo:remove": "npm --prefix purchase-backend run demo:remove"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "next": "^15.5.26",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  }
+}
