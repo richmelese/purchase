@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSession } from '@/components/session';
+import { paymentGrant, updateGrant } from '@/lib/permissions';
 import { api } from '@/lib/api';
 import { money, date, ecDate, qty, today } from '@/lib/format';
 import { FY_MONTHS, taxPeriod } from '@/lib/shared/ethiopian';
@@ -14,7 +15,7 @@ import { PageHeader, Card, Badge, Loading, Field, Select, Modal, useFetch, useTo
 function WithholdingCard({ inv, base, onSaved }) {
   const toast = useToast();
   const { canAny, canCompany } = useSession();
-  const mayEdit = canAny([inv.kind === 'S' ? 'sales' : 'purchases', 'edit'], ['withholding', 'edit']) && canCompany(inv.party_id, 'edit');
+  const mayEdit = canAny(updateGrant(inv.kind), ['withholding', 'edit']) && canCompany(inv.party_id, 'edit');
   const lk = useLookups();
   const [f, setF] = useState({
     wh_receipt_type: inv.wh_receipt_type || '', wh_receipt_no: inv.wh_receipt_no || '',
@@ -84,10 +85,9 @@ function WithholdingCard({ inv, base, onSaved }) {
 function PaymentsCard({ inv, base, onChange }) {
   const toast = useToast();
   const { canAny, canCompany } = useSession();
-  const res = inv.kind === 'S' ? 'sales' : 'purchases';
   // role right, and the "edit" right for this invoice's company
-  const mayRecord = canAny([res, 'edit'], ['credit', 'create'], ['credit', 'edit']) && canCompany(inv.party_id, 'edit');
-  const mayDelete = canAny([res, 'edit'], ['credit', 'delete']) && canCompany(inv.party_id, 'edit');
+  const mayRecord = canAny(paymentGrant(inv.kind), ['credit', 'create'], ['credit', 'edit']) && canCompany(inv.party_id, 'edit');
+  const mayDelete = canAny(paymentGrant(inv.kind), ['credit', 'delete']) && canCompany(inv.party_id, 'edit');
   const lk = useLookups();
   const [open, setOpen] = useState(false);
   const [f, setF] = useState({ date: today(), amount: '', method: 'Bank transfer', reference: '' });
@@ -170,14 +170,22 @@ export default function InvoiceView({ kind, id }) {
 
   const remove = async () => {
     if (!confirm(`Delete ${inv.invoice_no}? This cannot be undone.`)) return;
-    await api.del(`${base}/${inv.id}`);
-    toast(`${inv.invoice_no} deleted`);
-    router.push(base);
+    try {
+      await api.del(`${base}/${inv.id}`);
+      toast(`${inv.invoice_no} deleted`);
+      router.push(base);
+    } catch (e) {
+      toast(e.message, 'error');
+    }
   };
   const toggleReported = async () => {
     const status = inv.report_status === 'Reported' ? 'Not Reported' : 'Reported';
-    await api.post(`${base}/report-status`, { ids: [inv.id], status });
-    setData({ ...inv, report_status: status });
+    try {
+      await api.post(`${base}/report-status`, { ids: [inv.id], status });
+      setData({ ...inv, report_status: status });
+    } catch (e) {
+      toast(e.message, 'error');
+    }
   };
 
   return (
@@ -187,8 +195,8 @@ export default function InvoiceView({ kind, id }) {
       <PageHeader title={`${isSale ? 'Sale' : 'Purchase'} ${inv.invoice_no}`} subtitle={`${inv.party_name || 'Unregistered ' + (isSale ? 'buyer' : 'seller')} · ${date(inv.date)} · ${ecDate(inv.date)}`}>
         <Link className="btn" href={base}>← Back</Link>
         <button className="btn" onClick={() => window.print()}>Print {isSale ? 'invoice' : 'voucher'}</button>
-        {canFor(resource, 'edit', inv.party_id) && <button className="btn" onClick={toggleReported}>{inv.report_status === 'Reported' ? 'Mark not reported' : 'Mark reported'}</button>}
-        {canFor(resource, 'edit', inv.party_id) && <Link className="btn" href={`${base}/${inv.id}/edit`}>Edit</Link>}
+        {canFor(resource, 'edit', inv.party_id, updateGrant(inv.kind)[2]) && <button className="btn" onClick={toggleReported}>{inv.report_status === 'Reported' ? 'Mark not reported' : 'Mark reported'}</button>}
+        {canFor(resource, 'edit', inv.party_id, updateGrant(inv.kind)[2]) && <Link className="btn" href={`${base}/${inv.id}/edit`}>Edit</Link>}
         {canFor(resource, 'delete', inv.party_id) && <button className="btn btn-danger" onClick={remove}>Delete</button>}
       </PageHeader>
 

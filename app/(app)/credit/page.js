@@ -7,8 +7,6 @@ import { useSession } from '@/components/session';
 import { money, date } from '@/lib/format';
 import { PageHeader, Card, Badge, Loading, Empty, useFetch } from '@/components/ui';
 
-const BUCKETS = ['0–30', '31–60', '61–90', '90+'];
-
 function Credit() {
   const { can } = useSession();
   const params = useSearchParams();
@@ -16,6 +14,9 @@ function Credit() {
   const [all, setAll] = useState(false);
   const { data, error } = useFetch(`/credit/${kind === 'P' ? 'purchases' : 'sales'}${all ? '?all=1' : ''}`);
   const base = kind === 'P' ? '/purchases' : '/sales';
+  // Bucket labels come from the API, so they always match each row's age_bucket.
+  const { data: bucketDefs } = useFetch('/credit/buckets');
+  const BUCKETS = (bucketDefs || []).map((b) => b.label);
   const aging = BUCKETS.map((b) => (data || []).filter((r) => r.age_bucket === b).reduce((a, r) => a + r.balance, 0));
 
   // Balance per party
@@ -41,7 +42,7 @@ function Credit() {
         {BUCKETS.map((b, i) => (
           <div key={b} className="card stat">
             <div className="stat-label">{b} days</div>
-            <div className="stat-value" style={i === 3 && aging[i] > 0 ? { color: 'var(--bad)' } : undefined}>{money(aging[i])}</div>
+            <div className="stat-value" style={i === BUCKETS.length - 1 && aging[i] > 0 ? { color: 'var(--bad)' } : undefined}>{money(aging[i])}</div>
           </div>
         ))}
       </div>

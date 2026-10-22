@@ -17,11 +17,14 @@ export function SessionProvider({ children, initialUser = null }) {
     user,
     logout,
     isAdmin: user?.role === 'admin',
-    /** can('purchases', 'create') – what the user's role allows (false until the user is loaded). */
-    can: (resource, right) => canFor(user, resource, right),
+    /**
+     * can('purchases', 'create') – what the user's role allows (false until the user is loaded).
+     * An optional task narrows it: can('purchases', 'edit', 'record_payment_p').
+     */
+    can: (resource, right, task) => canFor(user, resource, right, task),
     canAny: (...grants) => canAnyFor(user, ...grants),
-    /** canFor('sales', 'edit', inv.party_id) – role right AND the right for that company. */
-    canFor: (resource, right, partyId) => canFor(user, resource, right) && canCompanyFor(user, partyId, right),
+    /** canFor('sales', 'edit', inv.party_id[, task]) – role right AND the right for that company. */
+    canFor: (resource, right, partyId, task) => canFor(user, resource, right, task) && canCompanyFor(user, partyId, right),
     /** canCompany(partyId, 'edit') – the right given for that company (true for all-company users). */
     canCompany: (partyId, right) => canCompanyFor(user, partyId, right),
   };

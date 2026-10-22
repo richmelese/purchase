@@ -43,6 +43,7 @@ function IssueModal({ products, onClose, onSaved }) {
 
 export default function InventoryPage() {
   const { can } = useSession();
+  const toast = useToast();
   const { unitLabel } = useLookups();
   const [tab, setTab] = useState('stock');
   const [q, setQ] = useState('');
@@ -60,8 +61,12 @@ export default function InventoryPage() {
 
   const removeIssue = async (id) => {
     if (!confirm('Delete this issue? The quantity returns to stock.')) return;
-    await api.del(`/issues/${id}`);
-    issues.reload(); stock.reload();
+    try {
+      await api.del(`/issues/${id}`);
+      issues.reload(); stock.reload();
+    } catch (e) {
+      toast(e.message, 'error');
+    }
   };
 
   return (

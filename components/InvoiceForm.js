@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import {
-  computeLine, computeTotals, computeWithholding, typesFor, DEFAULT_RULES,
+  computeLine, computeTotals, computeWithholding, typesFor,
   PURCHASE_TAX_TYPES, RECEIPT_PREFIX, receiptNumberError,
 } from '@/lib/shared/calc';
 import { EC_MONTHS, toEthiopian, toGregorian, taxPeriod, formatEthiopian } from '@/lib/shared/ethiopian';
@@ -78,16 +78,14 @@ export default function InvoiceForm({ kind, id }) {
     })));
   }, [existing.data]);
 
-  const rules = useMemo(() => {
-    if (!settings) return DEFAULT_RULES;
-    return Object.fromEntries(Object.keys(DEFAULT_RULES).map((k) => [k, Number(settings[k]) || DEFAULT_RULES[k]]));
-  }, [settings]);
+  // The tax rules the API calculates with (GET /settings → rules); the preview waits for them.
+  const rules = settings?.rules;
   const productByCode = useMemo(() => new Map((products || []).map((p) => [p.code, p])), [products]);
   const party = useMemo(() => (parties || []).find((p) => p.tin && p.tin === h.party_tin), [parties, h.party_tin]);
 
-  const computed = lines.map((l) => computeLine(l, rules));
+  const computed = rules ? lines.map((l) => computeLine(l, rules)) : [];
   const totals = computeTotals(computed);
-  const wh = computeWithholding({ ...totals, vat_category: h.vat_category, wh_receipt_type: 'With Receipt' }, rules);
+  const wh = rules ? computeWithholding({ ...totals, vat_category: h.vat_category, wh_receipt_type: 'With Receipt' }, rules) : null;
   const period = taxPeriod(h.date);
   const types = typesFor(kind);
   const lk = useLookups();
@@ -177,7 +175,7 @@ export default function InvoiceForm({ kind, id }) {
     }
   };
 
-  if (id && !existing.data) return <Loading error={existing.error} />;
+  if ((id && !existing.data) || !rules) return <Loading error={existing.error} />;
 
   const lineErr = (i, k) => errors.line_items?.[i]?.[k];
   const cls = (bad) => (bad ? 'invalid' : '');
@@ -296,12 +294,12 @@ export default function InvoiceForm({ kind, id }) {
                       <Select options={typeOptions} value={lines[i].tx_type} onChange={(v) => setLine(i, 'tx_type', +v)} className={cls(lineErr(i, 'tx_type'))} />
                     </td>
                     <td>
-                      <Select options={taxTypeOptions(lines[i].transaction_type)} value={lines[i].transaction_type} onChange={(v) => setLine(i, 'transaction_type', v)} />
+                      <Select options={taxTypeOptions(lines[i].transaction_type)} value={lines[i].transaction_type} onChange={(v) => setLine(i, 'transaction_type', v)} className={cls(lineErr(i, 'transaction_type'))} />
                     </td>
                     <td><input type="number" step="any" min="0" value={lines[i].qty} onChange={(e) => setLine(i, 'qty', e.target.value)} className={cls(lineErr(i, 'qty'))} /></td>
                     <td><input type="number" step="any" min="0" value={lines[i].unit_price} onChange={(e) => setLine(i, 'unit_price', e.target.value)} className={cls(lineErr(i, 'unit_price'))} /></td>
                     <td className="num">{money(l.total)}</td>
-                    <td><input type="number" step="any" min="0" value={lines[i].excise_rate} onChange={(e) => setLine(i, 'excise_rate', e.target.value)} placeholder="0" /></td>
+                    <td><input type="number" step="any" min="0" value={lines[i].excise_rate} onChange={(e) => setLine(i, 'excise_rate', e.target.value)} placeholder="0" className={cls(lineErr(i, 'excise_rate'))} title={lineErr(i, 'excise_rate') || undefined} /></td>
                     <td className="num">{money(l.excise_amount)}</td>
                     <td><input type="number" step="any" min="0" value={lines[i].vatable_service_fee} onChange={(e) => setLine(i, 'vatable_service_fee', e.target.value)} placeholder="0" /></td>
                     <td className="num">{money(l.vat_amount)}</td>

@@ -2,43 +2,27 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
-import {
-  UNITS, PAYMENT_TYPES, RECEIPT_TYPES, TRANSACTION_TYPES, REPORT_STATUSES, WH_RECEIPT_TYPES,
-  PURCHASE_TYPES, SALES_TYPES, VAT_CATEGORIES, CALENDAR_TYPES,
-} from '@/lib/shared/calc';
+import { useToast } from './ui';
 
-// Used until the server lists arrive (and if they fail to load).
-const FALLBACK = {
-  payment_type: PAYMENT_TYPES.map((v) => ({ value: v, label: v })),
-  vat_category: VAT_CATEGORIES,
-  calendar_type: CALENDAR_TYPES,
-  purchase_type: PURCHASE_TYPES.map((t) => ({ value: t.value, label: `${t.label} [${t.line}]` })),
-  sales_type: SALES_TYPES.map((t) => ({ value: t.value, label: `${t.label} [${t.line}]` })),
-  receipt_type: RECEIPT_TYPES.map((v) => ({ value: v, label: v })),
-  unit: UNITS,
-  wh_receipt_type: WH_RECEIPT_TYPES.map((v) => ({ value: v, label: v })),
-  transaction_type: TRANSACTION_TYPES.map((v) => ({ value: v, label: v })),
-  report_status: REPORT_STATUSES.map((v) => ({ value: v, label: v })),
-  product_category: [],
-  department: [],
-  payment_method: ['Bank transfer', 'Cash', 'Cheque', 'Mobile money'].map((v) => ({ value: v, label: v })),
-};
-
+// Every dropdown list comes from GET /lookups (the Setting sheet); there is no local copy to drift.
 const NUMBERED = ['unit'];
 
 const Ctx = createContext(null);
 
 export function LookupsProvider({ children }) {
-  const [state, setState] = useState({ lists: [], values: FALLBACK });
-  const load = useCallback(() => api.get('/lookups').then((r) => setState({ lists: r.lists, values: { ...FALLBACK, ...r.values } })).catch(() => {}), []);
+  const toast = useToast();
+  const [state, setState] = useState({ lists: [], values: {}, loaded: false });
+  const load = useCallback(() => api.get('/lookups')
+    .then((r) => setState({ lists: r.lists, values: r.values, loaded: true }))
+    .catch((e) => toast(`Dropdown lists could not be loaded: ${e.message}`, 'error')), [toast]);
   useEffect(() => { load(); }, [load]);
 
   const value = useMemo(() => {
-    const units = Object.fromEntries(state.values.unit.map((u) => [+u.value, u.label]));
+    const units = Object.fromEntries((state.values.unit || []).map((u) => [+u.value, u.label]));
     return {
       ...state,
       reload: load,
-      set: (values) => setState((s) => ({ ...s, values: { ...FALLBACK, ...values } })),
+      set: (values) => setState((s) => ({ ...s, values })),
       /** Options for <Select>; numbered lists show their ID like the workbook ("7 – PCS", "3 – Taxable local…"). */
       options: (list) => (NUMBERED.includes(list)
         ? (state.values[list] || []).map((u) => ({ value: u.value, label: `${u.value} – ${u.label}` }))

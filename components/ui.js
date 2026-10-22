@@ -47,7 +47,9 @@ export function useFetch(url, deps = []) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, tick, ...deps]);
   const reload = useCallback(() => setTick((t) => t + 1), []);
-  return { ...state, reload, setData: (data) => setState((s) => ({ ...s, data })) };
+  // Like React's setState: accepts a value or an updater `(prev) => next`.
+  const setData = useCallback((data) => setState((s) => ({ ...s, data: typeof data === 'function' ? data(s.data) : data })), []);
+  return { ...state, reload, setData };
 }
 
 // ---------------------------------------------------------------------------

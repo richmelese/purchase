@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { api } from '@/lib/api';
 import { useToast } from './ui';
 
 /** Uploads an .xlsx file to an import endpoint and reports the result. */
@@ -13,9 +14,7 @@ export default function ImportButton({ url, label = 'Import Excel', onDone }) {
     if (!file) return;
     setBusy(true);
     try {
-      const res = await fetch(`/api${url}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Import failed');
+      const data = await api.upload(url, file);
       toast(`Imported from “${data.sheet}”: ${data.added} added, ${data.updated} updated${data.skipped ? `, ${data.skipped} skipped` : ''}`);
       onDone?.(data);
     } catch (e) {

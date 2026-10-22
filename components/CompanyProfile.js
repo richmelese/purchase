@@ -123,7 +123,7 @@ export function ProfileForm({ value: p, onChange, errors: err = {}, options: opt
           <Field label="Commercial registration date" error={e('general.commercial_reg_date')}>{input('general.commercial_reg_date', { type: 'date' })}</Field>
           <Field label="Number of licenses" error={e('general.license_count')}>{input('general.license_count', { type: 'number', min: 0, step: 1 })}</Field>
           <Field label="First license registration date" error={e('general.first_license_date')}>{input('general.first_license_date', { type: 'date' })}</Field>
-          <Field label="Business type" error={e('general.business_type')} className="span-4">
+          <Field label="Business type" error={e('general.business_type') || e('general.business_type_other')} className="span-4">
             <div className="row">
               <Choice options={opt.business_types} value={g.business_type} onChange={(v) => set('general.business_type', v)}
                 labels={{ PLC: 'PLC', SOL: 'Sole proprietor (SOL)', SC: 'Share company (SC)', Other: 'Other' }} />
@@ -159,8 +159,11 @@ export function ProfileForm({ value: p, onChange, errors: err = {}, options: opt
               <div key={key} className="cp-contact">
                 <div className="cp-contact-head">
                   {key === 'other' ? (
-                    <input className="cp-contact-title" placeholder="Other (role / title)" value={p.contacts.other.title}
-                      onChange={(ev) => set('contacts.other.title', ev.target.value)} aria-label="Other contact role" />
+                    <>
+                      <input className="cp-contact-title" placeholder="Other (role / title)" value={p.contacts.other.title}
+                        onChange={(ev) => set('contacts.other.title', ev.target.value)} aria-label="Other contact role" />
+                      {e('contacts.other.title') && <div className="cp-err">{e('contacts.other.title')}</div>}
+                    </>
                   ) : label}
                 </div>
                 <div className="form-grid cp-contact-grid">
@@ -193,8 +196,8 @@ export function ProfileForm({ value: p, onChange, errors: err = {}, options: opt
                   <tr key={i}>
                     <td className="muted">{pad(i + 1)}</td>
                     <td>{input(`${b}.license_no`, { 'aria-label': 'License number' })}{e(`${b}.license_no`) && <div className="cp-err">{e(`${b}.license_no`)}</div>}</td>
-                    <td className="cp-wide">{input(`${b}.field`, { 'aria-label': 'Field of business' })}</td>
-                    <td>{input(`${b}.status`, { 'aria-label': 'Status', placeholder: 'e.g. Active, Renewed' })}</td>
+                    <td className="cp-wide">{input(`${b}.field`, { 'aria-label': 'Field of business' })}{e(`${b}.field`) && <div className="cp-err">{e(`${b}.field`)}</div>}</td>
+                    <td>{input(`${b}.status`, { 'aria-label': 'Status', placeholder: 'e.g. Active, Renewed' })}{e(`${b}.status`) && <div className="cp-err">{e(`${b}.status`)}</div>}</td>
                     <td>{input(`${b}.registration_date`, { type: 'date', 'aria-label': 'Registration date' })}{e(`${b}.registration_date`) && <div className="cp-err">{e(`${b}.registration_date`)}</div>}</td>
                     <td className="no-print">{canEdit && <button type="button" className="icon-btn" aria-label={`Remove license ${i + 1}`} onClick={() => removeRow('licenses', i)}>✕</button>}</td>
                   </tr>

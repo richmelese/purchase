@@ -4,10 +4,11 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSession } from '@/components/session';
+import { updateGrant } from '@/lib/permissions';
 import { api, qs } from '@/lib/api';
 import { money, date } from '@/lib/format';
 import { FY_MONTHS } from '@/lib/shared/ethiopian';
-import { REPORT_STATUSES, PAYMENT_TYPES } from '@/lib/shared/calc';
+import { useLookups } from './lookups';
 import { PageHeader, Card, Badge, Loading, Empty, PeriodFilter, useFetch, useCurrentFy, useToast } from './ui';
 
 export default function InvoiceList({ kind }) {
@@ -17,6 +18,7 @@ export default function InvoiceList({ kind }) {
   const { can } = useSession();
   const router = useRouter();
   const toast = useToast();
+  const lk = useLookups();
   const currentFy = useCurrentFy();
   const [filter, setFilter] = useState({ fy: null, month: '', q: '', status: '', payment: '' });
   const [q, setQ] = useState('');
@@ -32,9 +34,13 @@ export default function InvoiceList({ kind }) {
   useEffect(() => setSelected(new Set()), [data]);
 
   const markStatus = async (status) => {
-    await api.post(`${base}/report-status`, { ids: [...selected], status });
-    toast(`${selected.size} marked as ${status}`);
-    reload();
+    try {
+      await api.post(`${base}/report-status`, { ids: [...selected], status });
+      toast(`${selected.size} marked as ${status}`);
+      reload();
+    } catch (e) {
+      toast(e.message, 'error');
+    }
   };
 
   const totals = (data || []).reduce((a, r) => ({
@@ -57,16 +63,16 @@ export default function InvoiceList({ kind }) {
             <PeriodFilter fy={filter.fy} month={filter.month} onChange={(p) => setFilter((f) => ({ ...f, ...p }))} />
             <select value={filter.payment} onChange={(e) => setFilter((f) => ({ ...f, payment: e.target.value }))} aria-label="Payment type">
               <option value="">Cash & credit</option>
-              {PAYMENT_TYPES.map((p) => <option key={p}>{p}</option>)}
+              {lk.options('payment_type').map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             <select value={filter.status} onChange={(e) => setFilter((f) => ({ ...f, status: e.target.value }))} aria-label="Report status">
               <option value="">Any status</option>
-              {REPORT_STATUSES.map((s) => <option key={s}>{s}</option>)}
+              {lk.options('report_status').map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             <input type="search" placeholder="Search number, TIN, name, item…" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />
           </div>
         )}
-        actions={selected.size > 0 && can(resource, 'edit') && (
+        actions={selected.size > 0 && can(...updateGrant(kind)) && (
           <>
             <span className="small muted">{selected.size} selected</span>
             <button className="btn btn-sm" onClick={() => markStatus('Reported')}>Mark reported</button>

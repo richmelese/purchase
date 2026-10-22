@@ -10,6 +10,7 @@ import {
 } from '@/components/ui';
 import Icon from '@/components/icons';
 import { useSession } from '@/components/session';
+import { useLookups } from '@/components/lookups';
 
 export default function ReconciliationPageWrapper() {
   return (
@@ -26,8 +27,9 @@ function ReconciliationPage() {
 
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'statement');
   const [selectedAccountId, setSelectedAccountId] = useState(null);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  // Each tab keeps its own search box and status filter.
+  const [filters, setFilters] = useState({ statement: { search: '' }, purchases: { search: '', status: 'all' }, sales: { search: '', status: 'all' } });
+  const setFilter = (tab, key, value) => setFilters((f) => ({ ...f, [tab]: { ...f[tab], [key]: value } }));
 
   // Modals state
   const [showTxModal, setShowTxModal] = useState(false);
@@ -57,8 +59,8 @@ function ReconciliationPage() {
     error: errorTx,
     reload: reloadTx,
   } = useFetch(
-    currentAccount ? `/reconciliation/transactions?bankAccountId=${currentAccount.id}&search=${encodeURIComponent(search)}` : null,
-    [currentAccount?.id, search],
+    currentAccount ? `/reconciliation/transactions?bankAccountId=${currentAccount.id}&search=${encodeURIComponent(filters.statement.search)}` : null,
+    [currentAccount?.id],
   );
 
   // Fetch purchases reconciliation
@@ -67,7 +69,7 @@ function ReconciliationPage() {
     loading: loadingPur,
     error: errorPur,
     reload: reloadPur,
-  } = useFetch(`/reconciliation/purchases?status=${statusFilter}&search=${encodeURIComponent(search)}`, [statusFilter, search]);
+  } = useFetch(`/reconciliation/purchases?status=${filters.purchases.status}&search=${encodeURIComponent(filters.purchases.search)}`);
 
   // Fetch sales reconciliation
   const {
@@ -75,7 +77,7 @@ function ReconciliationPage() {
     loading: loadingSal,
     error: errorSal,
     reload: reloadSal,
-  } = useFetch(`/reconciliation/sales?status=${statusFilter}&search=${encodeURIComponent(search)}`, [statusFilter, search]);
+  } = useFetch(`/reconciliation/sales?status=${filters.sales.status}&search=${encodeURIComponent(filters.sales.search)}`);
 
   const reloadAll = () => {
     reloadSummary();
@@ -118,7 +120,7 @@ function ReconciliationPage() {
         subtitle="Match bank debits (purchases) and credits (sales) across Ethiopian bank accounts"
       >
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {can('reconciliation', 'create') && (
+          {can('reconciliation', 'create', 'create_bank_tx') && (
           <button
             className="btn btn-primary"
             onClick={() => {
@@ -129,7 +131,7 @@ function ReconciliationPage() {
             <Icon name="plus" size={16} /> New Entry
           </button>
           )}
-          {can('reconciliation', 'edit') && (
+          {can('reconciliation', 'edit', 'run_automatch') && (
           <button
             className="btn"
             onClick={handleAutoMatch}
@@ -139,7 +141,7 @@ function ReconciliationPage() {
             <Icon name="trendUp" size={16} /> {matchingInProgress ? 'Matching...' : 'Auto-Match'}
           </button>
           )}
-          {can('reconciliation', 'create') && (
+          {can('reconciliation', 'create', 'import_bank') && (
           <button className="btn" onClick={() => setShowImportModal(true)}>
             <Icon name="upload" size={16} /> Import Form
           </button>
@@ -304,11 +306,11 @@ function ReconciliationPage() {
                   <input
                     type="search"
                     placeholder="Search codes, remarks..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    value={filters.statement.search}
+                    onChange={(e) => setFilter('statement', 'search', e.target.value)}
                     style={{ padding: '6px 12px', fontSize: 13, width: 200 }}
                   />
-                  {can('reconciliation', 'create') && (
+                  {can('reconciliation', 'create', 'create_bank_tx') && (
                   <button
                     className="btn btn-sm"
                     onClick={() => {
@@ -484,20 +486,21 @@ function ReconciliationPage() {
           actions={
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
+                value={filters.purchases.status}
+                onChange={(e) => setFilter('purchases', 'status', e.target.value)}
                 style={{ padding: '6px 10px', fontSize: 13 }}
               >
                 <option value="all">All Statuses</option>
                 <option value="reconciled">Reconciled</option>
                 <option value="partial">Partial</option>
                 <option value="unreconciled">Unreconciled</option>
+                <option value="overpaid">Overpaid</option>
               </select>
               <input
                 type="search"
                 placeholder="Search purchase, TIN, supplier..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                value={filters.purchases.search}
+                onChange={(e) => setFilter('purchases', 'search', e.target.value)}
                 style={{ padding: '6px 12px', fontSize: 13, width: 220 }}
               />
             </div>
@@ -596,20 +599,21 @@ function ReconciliationPage() {
           actions={
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
+                value={filters.sales.status}
+                onChange={(e) => setFilter('sales', 'status', e.target.value)}
                 style={{ padding: '6px 10px', fontSize: 13 }}
               >
                 <option value="all">All Statuses</option>
                 <option value="reconciled">Reconciled</option>
                 <option value="partial">Partial</option>
                 <option value="unreconciled">Unreconciled</option>
+                <option value="overcollected">Overcollected</option>
               </select>
               <input
                 type="search"
                 placeholder="Search sales, TIN, customer..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                value={filters.sales.search}
+                onChange={(e) => setFilter('sales', 'search', e.target.value)}
                 style={{ padding: '6px 12px', fontSize: 13, width: 220 }}
               />
             </div>
@@ -933,7 +937,7 @@ function TransactionModal({ tx, accounts, defaultAccountId, onClose, onSaved }) 
                 onChange={(e) => setForm({ ...form, purchase_code_2: e.target.value })}
               />
             </Field>
-            <Field label="Debit Amount (ETB)">
+            <Field label="Debit Amount (ETB)" error={err.debit}>
               <input
                 type="number"
                 step="0.01"
@@ -972,7 +976,7 @@ function TransactionModal({ tx, accounts, defaultAccountId, onClose, onSaved }) 
                 onChange={(e) => setForm({ ...form, sales_code_2: e.target.value })}
               />
             </Field>
-            <Field label="Credit Amount (ETB)">
+            <Field label="Credit Amount (ETB)" error={err.credit}>
               <input
                 type="number"
                 step="0.01"
@@ -1003,25 +1007,18 @@ function AccountModal({ account, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState({});
 
-  const { data: bankLookups } = useFetch('/lookups');
+  // Banks come from the "Banks (Ethiopian)" list in Settings › Dropdown lists.
+  const lk = useLookups();
   const bankOptions = useMemo(() => {
-    return bankLookups?.bank || [
-      { value: 'CBE', label: 'Commercial Bank Of Ethiopia' },
-      { value: 'Awash', label: 'Awash Bank' },
-      { value: 'BOA', label: 'Bank of Abyssinia' },
-      { value: 'Dashen', label: 'Dashen Bank' },
-      { value: 'Hibret', label: 'Hibret Bank' },
-      { value: 'Wegagen', label: 'Wegagen Bank' },
-      { value: 'NIB', label: 'Nib International Bank' },
-      { value: 'Zemen', label: 'Zemen Bank' },
-      { value: 'CooP', label: 'Cooperative Bank of Oromia' },
-      { value: 'Abay', label: 'Abay Bank' },
-    ];
-  }, [bankLookups]);
+    const configured = lk.options('bank');
+    // Keep an account's saved bank selectable even if it was later removed from the list.
+    const saved = account?.bank_name;
+    return saved && !configured.some((o) => o.value === saved) ? [{ value: saved, label: saved }, ...configured] : configured;
+  }, [lk, account?.bank_name]);
 
   const [form, setForm] = useState({
     account_no: account?.account_no || 1,
-    bank_name: account?.bank_name || 'CBE',
+    bank_name: account?.bank_name || '',
     account_name: account?.account_name || '',
     account_number: account?.account_number || '',
     currency: account?.currency || 'ETB',
@@ -1082,6 +1079,7 @@ function AccountModal({ account, onClose, onSaved }) {
               value={form.bank_name}
               onChange={(e) => setForm({ ...form, bank_name: e.target.value })}
             >
+              <option value="">Choose a bank</option>
               {bankOptions.map((b) => (
                 <option key={b.value} value={b.value}>
                   {b.value} — {b.label}
@@ -1150,34 +1148,8 @@ function ImportWorkbookModal({ onClose, onImported }) {
     setImporting(true);
     setErr(null);
     try {
-      const buffer = await file.arrayBuffer();
-      const res = await fetch('/api/reconciliation/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream' },
-        body: buffer,
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || 'Import failed');
-      }
-      const data = await res.json();
+      const data = await api.upload('/reconciliation/import', file);
       toast(`Successfully imported ${data.total_imported} bank transactions!`);
-      onImported();
-    } catch (e) {
-      setErr(e.message);
-    } finally {
-      setImporting(false);
-    }
-  };
-
-  const handleImportDirect = async () => {
-    setImporting(true);
-    setErr(null);
-    try {
-      const res = await api.post('/reconciliation/import', {
-        filePath: 'C:\\Users\\HP\\Downloads\\Telegram Desktop\\EC Banck Reconcilation Form For ALL.xlsx',
-      });
-      toast(`Successfully imported ${res.total_imported} bank transactions from EC Bank Reconciliation Form!`);
       onImported();
     } catch (e) {
       setErr(e.message);
@@ -1197,7 +1169,7 @@ function ImportWorkbookModal({ onClose, onImported }) {
 
       <div style={{ textAlign: 'center', padding: '20px 12px' }}>
         <p style={{ color: 'var(--text-2)', marginBottom: 20 }}>
-          Upload or load your <strong>EC Banck Reconcilation Form For ALL.xlsx</strong> workbook.
+          Upload your <strong>EC Bank Reconciliation Form</strong> workbook.
           <br />
           The system reads statements from <strong>Bank 01</strong> to <strong>Bank 10</strong> sheets and synchronizes debit and credit transactions.
         </p>
@@ -1214,23 +1186,11 @@ function ImportWorkbookModal({ onClose, onImported }) {
           <button
             className="btn btn-primary"
             style={{ padding: '12px 24px', fontSize: 14, width: '100%', maxWidth: 440 }}
-            onClick={handleImportDirect}
-            disabled={importing}
-          >
-            <Icon name="upload" size={18} style={{ marginRight: 8 }} />
-            {importing ? 'Processing workbook...' : 'Import from Telegram Downloads (Auto-Detect)'}
-          </button>
-
-          <div style={{ color: 'var(--muted)', fontSize: 13 }}>— or upload a file manually —</div>
-
-          <button
-            className="btn"
-            style={{ padding: '10px 20px', fontSize: 14, width: '100%', maxWidth: 440 }}
             onClick={() => fileInputRef.current?.click()}
             disabled={importing}
           >
-            <Icon name="download" size={16} style={{ marginRight: 8 }} />
-            Browse .xlsx Workbook from Device...
+            <Icon name="upload" size={18} style={{ marginRight: 8 }} />
+            {importing ? 'Processing workbook...' : 'Choose .xlsx workbook…'}
           </button>
         </div>
       </div>

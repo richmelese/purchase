@@ -11,21 +11,6 @@ import { date } from '@/lib/format';
 import { settingsTabsFor, COMPANY_RIGHTS } from '@/lib/permissions';
 import CompanyProfile from '@/components/CompanyProfile';
 
-const EXPORTS = [
-  { grant: ['reports', 'export'], href: (q) => `/api/export/all?${q}`, label: 'All-in-one workbook', desc: 'Purchase & sales detail, summaries, withholding and VAT declaration' },
-  { grant: ['purchases', 'export'], href: (q) => `/api/export/purchases?${q}`, label: 'Purchases', desc: 'P. Detail + P. Summary' },
-  { grant: ['sales', 'export'], href: (q) => `/api/export/sales?${q}`, label: 'Sales', desc: 'S. Detail + S. Summary' },
-  { grant: ['withholding', 'export'], href: (q) => `/api/export/withholding?${q}`, label: 'Withholding', desc: 'P WH + S WH' },
-  { grant: ['vat', 'export'], href: (q) => `/api/export/vat?${q}`, label: 'VAT declaration', desc: 'Monthly declaration lines' },
-  { grant: ['credit', 'export'], href: () => '/api/export/credit', label: 'Credit', desc: 'Payables & receivables with aging' },
-  { grant: ['inventory', 'export'], href: () => '/api/export/stock', label: 'Current stock', desc: 'Stock in / out / remaining / value' },
-  { grant: ['inventory', 'export'], href: () => '/api/export/list/stock-in', label: 'Stock IN register', desc: 'Every purchase receipt line of stock items' },
-  { grant: ['inventory', 'export'], href: () => '/api/export/list/stock-out', label: 'Stock Out register', desc: 'Sales and internal issues' },
-  { grant: ['products', 'export'], href: () => '/api/export/list/products', label: 'Product list', desc: 'Product Master (can be re-imported)' },
-  { grant: ['parties', 'export'], href: () => '/api/export/list/parties', label: 'Supplier list', desc: 'Company profile with TIN and MRC numbers' },
-  { grant: ['lookups', 'export'], href: () => '/api/export/list/lookups', label: 'Setting lists', desc: 'All dropdown lists, like the Setting sheet' },
-];
-
 // ---------------------------------------------------------------------------
 function CompanyTab() {
   const { can } = useSession();
@@ -37,6 +22,10 @@ function CompanyTab() {
   );
 }
 
+// Rates are stored as fractions (0.15) and edited as percentages (15); rounding drops float noise.
+const toPercent = (rate) => Math.round(Number(rate) * 100 * 1e6) / 1e6;
+const fromPercent = (pct) => (String(pct).trim() === '' ? '' : Math.round((Number(pct) / 100) * 1e8) / 1e8);
+
 function TaxRules({ canEdit }) {
   const toast = useToast();
   const { data, error } = useFetch('/settings');
@@ -45,7 +34,7 @@ function TaxRules({ canEdit }) {
   useEffect(() => {
     if (!data) return;
     setF({
-      vat_rate: +data.vat_rate * 100, wh_rate: +data.wh_rate * 100,
+      vat_rate: toPercent(data.vat_rate), wh_rate: toPercent(data.wh_rate),
       wh_goods_threshold: data.wh_goods_threshold, wh_service_threshold: data.wh_service_threshold,
     });
   }, [data]);
@@ -53,7 +42,7 @@ function TaxRules({ canEdit }) {
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const save = async () => {
     try {
-      await api.put('/settings', { ...f, vat_rate: Number(f.vat_rate) / 100, wh_rate: Number(f.wh_rate) / 100 });
+      await api.put('/settings', { ...f, vat_rate: fromPercent(f.vat_rate), wh_rate: fromPercent(f.wh_rate) });
       toast('Tax rules saved');
       setErr({});
     } catch (e) { setErr(e.fields || {}); toast(e.message, 'error'); }
@@ -193,8 +182,10 @@ function ListsTab() {
 // ---------------------------------------------------------------------------
 function ExportTab() {
   const { data } = useFetch('/settings');
-  const { can, isAdmin } = useSession();
-  const exports = EXPORTS.filter((x) => can(...x.grant));
+  const { isAdmin } = useSession();
+  // Only the downloads this user's role allows (GET /exports).
+  const { data: exportList, error: exportError } = useFetch('/exports');
+  const exports = exportList || [];
   const [period, setPeriod] = useState({ fy: null, month: '' });
   useEffect(() => { if (data) setPeriod((p) => ({ ...p, fy: p.fy || data.current_fy })); }, [data]);
   const q = `fy=${period.fy || ''}${period.month !== '' ? `&month=${period.month}` : ''}`;
@@ -202,11 +193,12 @@ function ExportTab() {
     <div className="grid grid-2">
       <Card title="Export to Excel" actions={<PeriodFilter fy={period.fy} month={period.month} onChange={setPeriod} />}>
         <ul className="list-plain">
-          {!exports.length && <li className="muted">Your role has no Excel exports.</li>}
+          {!exportList && <li><Loading error={exportError} /></li>}
+          {exportList && !exports.length && <li className="muted">Your role has no Excel exports.</li>}
           {exports.map((x) => (
-            <li key={x.label}>
+            <li key={x.id}>
               <span><strong>{x.label}</strong><div className="small muted">{x.desc}</div></span>
-              <a className="btn btn-sm" href={x.href(q)}>Download</a>
+              <a className="btn btn-sm" href={`/api${x.path}${x.period ? `?${q}` : ''}`}>Download</a>
             </li>
           ))}
         </ul>
@@ -234,7 +226,10 @@ function generatePassword() {
 
 function UserModal({ user, onClose, onSaved }) {
   const toast = useToast();
-  const { isAdmin, user: me } = useSession();
+  const { isAdmin, user: me, can } = useSession();
+  // Editing an account is split into two role tasks; a new account needs only users/create.
+  const mayUpdateAccount = !user || can('users', 'edit', 'update_user');
+  const mayAssign = !user || can('users', 'edit', 'assign_roles_companies');
   const { data: rolesData } = useFetch('/roles');
   const { data: partiesData } = useFetch('/parties');
   // Only administrators can hand out the Administrator role; the company list is already limited to the
@@ -300,6 +295,7 @@ function UserModal({ user, onClose, onSaved }) {
   });
 
   const toggleParty = (id) => {
+    if (!mayAssign) return;
     setF((prev) => {
       const exists = prev.party_ids.includes(id);
       return {
@@ -310,6 +306,7 @@ function UserModal({ user, onClose, onSaved }) {
   };
 
   const selectAllFiltered = () => {
+    if (!mayAssign) return;
     const idsToAdd = filteredParties.map((p) => p.id);
     setF((prev) => ({
       ...prev,
@@ -339,17 +336,22 @@ function UserModal({ user, onClose, onSaved }) {
     if (Object.keys(problems).length) { setErr({ ...problems, _: 'Please correct the highlighted fields' }); return; }
     try {
       const selectedRole = roles.find((r) => String(r.id) === String(f.role_id));
-      const body = {
-        full_name: f.full_name,
-        role_id: f.role_id ? +f.role_id : undefined,
-        role: selectedRole ? selectedRole.name : f.role,
-        active: f.active,
-        access_all_parties: Boolean(f.access_all_parties),
-        party_ids: f.access_all_parties ? [] : f.party_ids,
-        party_rights: f.access_all_parties ? {} : Object.fromEntries(f.party_ids.map((id) => [id, rightsFor(id)])),
-      };
+      // Only send what this user may change, so the API doesn't see untouched fields as a change.
+      const body = {};
+      if (mayUpdateAccount) {
+        Object.assign(body, { full_name: f.full_name, active: f.active });
+        if (f.password) body.password = f.password;
+      }
+      if (mayAssign) {
+        Object.assign(body, {
+          role_id: f.role_id ? +f.role_id : undefined,
+          role: selectedRole ? selectedRole.name : f.role,
+          access_all_parties: Boolean(f.access_all_parties),
+          party_ids: f.access_all_parties ? [] : f.party_ids,
+          party_rights: f.access_all_parties ? {} : Object.fromEntries(f.party_ids.map((id) => [id, rightsFor(id)])),
+        });
+      }
       if (!user) body.username = f.username;
-      if (f.password) body.password = f.password;
 
       onSaved(user ? await api.put(`/users/${user.id}`, body) : await api.post('/users', body));
       toast(user
@@ -388,13 +390,15 @@ function UserModal({ user, onClose, onSaved }) {
           </Field>
         )}
         <Field label="Full name" required error={err.full_name} className={user ? 'span-4' : ''}>
-          <input value={f.full_name} onChange={(e) => setF({ ...f, full_name: e.target.value })} />
+          <input value={f.full_name} onChange={(e) => setF({ ...f, full_name: e.target.value })} disabled={!mayUpdateAccount} />
         </Field>
         {!companyAccount && (
         <Field label="Role" required className="span-4" error={err.role_id} hint="Decides the menus, pages and actions this user gets">
           <Select
-            options={roleOptions.length ? roleOptions : [{ value: 'user', label: 'User' }, { value: 'admin', label: 'Administrator' }]}
+            options={roleOptions}
+            placeholder={rolesData ? 'Choose a role' : 'Loading roles…'}
             value={String(f.role_id)}
+            disabled={!mayAssign}
             onChange={(v) => {
               const matched = roles.find((r) => String(r.id) === String(v));
               setF({ ...f, role_id: v, role: matched?.name || f.role });
@@ -407,6 +411,7 @@ function UserModal({ user, onClose, onSaved }) {
             <Select
               options={[{ value: '1', label: 'Active' }, { value: '0', label: 'Inactive / pending' }]}
               value={f.active ? '1' : '0'}
+              disabled={!mayUpdateAccount}
               onChange={(v) => setF({ ...f, active: v === '1' })}
             />
           </Field>
@@ -425,15 +430,18 @@ function UserModal({ user, onClose, onSaved }) {
               className="grow"
               autoComplete="new-password"
               value={f.password}
+              disabled={!mayUpdateAccount}
               onChange={(e) => setF({ ...f, password: e.target.value })}
               placeholder={user ? 'Leave empty to keep current' : 'At least 8 characters'}
             />
-            <button type="button" className="btn" onClick={() => setF({ ...f, password: generatePassword() })} title="Generate a random temporary password">Generate</button>
+            <button type="button" className="btn" disabled={!mayUpdateAccount} onClick={() => setF({ ...f, password: generatePassword() })} title="Generate a random temporary password">Generate</button>
           </div>
         </Field>
       </div>
 
       {!companyAccount && (
+      <fieldset disabled={!mayAssign} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, opacity: mayAssign ? 1 : 0.6 }}
+        title={mayAssign ? undefined : 'Your role cannot assign roles or company access'}>
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 8 }}>
         <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>Company & Supplier Access</h3>
         <p className="small muted" style={{ margin: '0 0 12px' }}>
@@ -561,6 +569,7 @@ function UserModal({ user, onClose, onSaved }) {
           </div>
         )}
       </div>
+      </fieldset>
       )}
     </Modal>
   );
@@ -637,8 +646,8 @@ function UsersTab() {
                 <td>{u.last_login ? date(u.last_login) : <span className="muted">Never</span>}</td>
                 <td>{date(u.created_at)}</td>
                 <td className="right">
-                  {!u.active && can('users', 'edit') && <button className="btn btn-sm btn-primary" onClick={() => activate(u)}>Activate</button>}
-                  {can('users', 'edit') && (isAdmin || u.role !== 'admin') && <button className="btn btn-sm btn-ghost" onClick={() => setEditing(u)}>Edit</button>}
+                  {!u.active && can('users', 'edit', 'update_user') && <button className="btn btn-sm btn-primary" onClick={() => activate(u)}>Activate</button>}
+                  {(can('users', 'edit', 'update_user') || can('users', 'edit', 'assign_roles_companies')) && (isAdmin || u.role !== 'admin') && <button className="btn btn-sm btn-ghost" onClick={() => setEditing(u)}>Edit</button>}
                   {can('users', 'delete') && (isAdmin || u.role !== 'admin') && <button className="btn btn-sm btn-ghost" onClick={() => remove(u)} disabled={u.id === me?.id}>Delete</button>}
                 </td>
               </tr>
@@ -651,107 +660,6 @@ function UsersTab() {
   );
 }
 
-const DEFAULT_TASKS_MAP = {
-  users: [
-    { id: 'create_user', label: 'Create User', right: 'create' },
-    { id: 'read_user', label: 'Read User Details', right: 'view' },
-    { id: 'update_user', label: 'Update Account Info', right: 'edit' },
-    { id: 'assign_roles_companies', label: 'Assign Roles & Companies', right: 'edit' },
-    { id: 'delete_user', label: 'Delete User Account', right: 'delete' },
-    { id: 'export_users', label: 'Export User List', right: 'export' },
-  ],
-  roles: [
-    { id: 'create_role', label: 'Create Role', right: 'create' },
-    { id: 'read_role', label: 'Read Role & Matrix', right: 'view' },
-    { id: 'update_role', label: 'Update Permissions', right: 'edit' },
-    { id: 'delete_role', label: 'Delete Role', right: 'delete' },
-    { id: 'export_roles', label: 'Export Roles', right: 'export' },
-  ],
-  purchases: [
-    { id: 'create_purchase', label: 'Create Purchase Invoice', right: 'create' },
-    { id: 'read_purchase', label: 'Read Invoices & Receipts', right: 'view' },
-    { id: 'update_purchase', label: 'Update Invoices & Goods', right: 'edit' },
-    { id: 'delete_purchase', label: 'Delete Purchase Invoice', right: 'delete' },
-    { id: 'export_purchase', label: 'Export Purchase Register', right: 'export' },
-    { id: 'record_payment_p', label: 'Record Credit Payment', right: 'edit' },
-  ],
-  sales: [
-    { id: 'create_sales', label: 'Create Sales Invoice', right: 'create' },
-    { id: 'read_sales', label: 'Read Sales Records', right: 'view' },
-    { id: 'update_sales', label: 'Update Sales Invoice', right: 'edit' },
-    { id: 'delete_sales', label: 'Delete Sales Invoice', right: 'delete' },
-    { id: 'export_sales', label: 'Export Sales Summary', right: 'export' },
-  ],
-  reconciliation: [
-    { id: 'import_bank', label: 'Import Bank Statement (Excel)', right: 'create' },
-    { id: 'read_reconcil', label: 'Read Accounts & Entries', right: 'view' },
-    { id: 'run_automatch', label: 'Run Auto-Matching Engine', right: 'edit' },
-    { id: 'create_bank_tx', label: 'Add Adjustment Entry', right: 'create' },
-    { id: 'delete_bank_tx', label: 'Delete Bank Transactions', right: 'delete' },
-    { id: 'export_reconcil', label: 'Export Reconciliation Sheets', right: 'export' },
-  ],
-  parties: [
-    { id: 'create_party', label: 'Add Supplier or Customer', right: 'create' },
-    { id: 'read_party', label: 'Read Directory & TIN', right: 'view' },
-    { id: 'update_party', label: 'Update Profiles & MRC', right: 'edit' },
-    { id: 'delete_party', label: 'Delete Company Record', right: 'delete' },
-    { id: 'export_parties', label: 'Export Company Directory', right: 'export' },
-  ],
-  inventory: [
-    { id: 'create_issue', label: 'Record Store Issue / Receipt', right: 'create' },
-    { id: 'read_stock', label: 'Read Stock Ledger & Balances', right: 'view' },
-    { id: 'update_stock', label: 'Update Quantities & Minimums', right: 'edit' },
-    { id: 'delete_issue', label: 'Delete Store Issue Voucher', right: 'delete' },
-    { id: 'export_stock', label: 'Export Inventory Balance', right: 'export' },
-  ],
-  withholding: [
-    { id: 'create_wh', label: 'Create Withholding Receipt', right: 'create' },
-    { id: 'read_wh', label: 'Read Withholding Register', right: 'view' },
-    { id: 'update_wh', label: 'Update Receipt Details', right: 'edit' },
-    { id: 'delete_wh', label: 'Delete Withholding Receipt', right: 'delete' },
-    { id: 'export_wh', label: 'Export Tax Filing Summary', right: 'export' },
-  ],
-  credit: [
-    { id: 'create_payment', label: 'Record Payment Voucher', right: 'create' },
-    { id: 'read_credit', label: 'Read Outstanding Balances', right: 'view' },
-    { id: 'update_credit', label: 'Update Payment Allocations', right: 'edit' },
-    { id: 'delete_payment', label: 'Delete Payment Voucher', right: 'delete' },
-    { id: 'export_credit', label: 'Export Aging Statement', right: 'export' },
-  ],
-  vat: [
-    { id: 'read_vat', label: 'Read Monthly VAT Return', right: 'view' },
-    { id: 'update_vat', label: 'Post VAT Adjustments', right: 'edit' },
-    { id: 'export_vat', label: 'Export ERCA VAT Declaration', right: 'export' },
-  ],
-  products: [
-    { id: 'create_product', label: 'Add Product to Catalog', right: 'create' },
-    { id: 'read_product', label: 'Read Catalog & Pricing', right: 'view' },
-    { id: 'update_product', label: 'Update Prices & Codes', right: 'edit' },
-    { id: 'delete_product', label: 'Delete Product Record', right: 'delete' },
-    { id: 'export_product', label: 'Export Catalog to Excel', right: 'export' },
-  ],
-  reports: [
-    { id: 'read_reports', label: 'Read Registers & Analytics', right: 'view' },
-    { id: 'export_reports', label: 'Export Reports to Excel', right: 'export' },
-  ],
-  settings: [
-    { id: 'read_settings', label: 'Read System Configuration', right: 'view' },
-    { id: 'update_settings', label: 'Update Company Info & Rules', right: 'edit' },
-  ],
-  lookups: [
-    { id: 'read_lookups', label: 'Read Units & Lookups', right: 'view' },
-    { id: 'update_lookups', label: 'Update Dropdown Lists', right: 'edit' },
-  ],
-  audit: [
-    { id: 'read_audit', label: 'Read Activity Log', right: 'view' },
-    { id: 'export_audit', label: 'Export Audit Trail', right: 'export' },
-  ],
-  export: [
-    { id: 'read_export', label: 'Read Backup History', right: 'view' },
-    { id: 'download_backup', label: 'Download System Backup', right: 'export' },
-  ],
-};
-
 // ---------------------------------------------------------------------------
 // Roles & Permissions Tab
 // ---------------------------------------------------------------------------
@@ -759,33 +667,9 @@ function RoleModal({ role, onClose, onSaved }) {
   const toast = useToast();
   const { isAdmin: mayEdit } = useSession();
   const { data: resData } = useFetch('/roles/resources');
-  const resources = resData?.resources || [
-    { id: 'users', name: 'User Management', description: 'Manage user accounts, credentials, and company access...' },
-    { id: 'roles', name: 'Role & Permissions', description: 'Manage dynamic roles and access controls...' },
-    { id: 'purchases', name: 'Purchases', description: 'Manage vendor invoices, goods receipts, and payment terms...' },
-    { id: 'sales', name: 'Sales', description: 'Manage sales invoices, customer receipts, and billing...' },
-    { id: 'reconciliation', name: 'Bank Reconciliation', description: 'Manage bank statements, auto-matching, and ledger entries...' },
-    { id: 'parties', name: 'Suppliers & Customers', description: 'Manage company directory, TIN profiles, and MRC registrations...' },
-    { id: 'inventory', name: 'Inventory & Stock', description: 'Manage stock ledger, store issues, and item movements...' },
-    { id: 'withholding', name: 'Withholding Tax', description: 'Manage purchase and sales withholding receipts and tax filing...' },
-    { id: 'credit', name: 'Credit & Payments', description: 'Manage payables, receivables, aging and payment tracking...' },
-    { id: 'vat', name: 'VAT Declaration', description: 'Manage monthly VAT declarations and official filings...' },
-    { id: 'products', name: 'Product Master', description: 'Manage product catalog, pricing, serial numbers, and units...' },
-    { id: 'reports', name: 'Financial Reports', description: 'Manage financial reports, registers, and executive summaries...' },
-    { id: 'settings', name: 'System Settings', description: 'Manage company details, tax rates, and thresholds...' },
-    { id: 'lookups', name: 'Dropdown Lists', description: 'Manage measurement units, payment methods, and categories...' },
-    { id: 'audit', name: 'Activity Log', description: 'Manage audit trail, login history, and security events...' },
-    { id: 'export', name: 'Data Export & Backup', description: 'Manage database backups, snapshots, and downloads...' },
-  ];
-
-  // Exactly matching the user's screenshot columns: CREATE, READ, UPDATE, DELETE, EXPORT
-  const rights = [
-    { id: 'create', label: 'CREATE' },
-    { id: 'view', label: 'READ' },
-    { id: 'edit', label: 'UPDATE' },
-    { id: 'delete', label: 'DELETE' },
-    { id: 'export', label: 'EXPORT' },
-  ];
+  // Resources (with their tasks) and the right columns come from GET /roles/resources.
+  const resources = resData?.resources || [];
+  const rights = resData?.rights || [];
 
   const [f, setF] = useState(role ? {
     name: role.name,
@@ -809,7 +693,7 @@ function RoleModal({ role, onClose, onSaved }) {
   };
 
   const getResourceTasks = (res) => {
-    return res.tasks && res.tasks.length ? res.tasks : (DEFAULT_TASKS_MAP[res.id] || []);
+    return res?.tasks || [];
   };
 
   const toggleRight = (resId, rightId) => {
@@ -1202,13 +1086,12 @@ function RolesTab() {
 
 
 // ---------------------------------------------------------------------------
-const ENTITY_LABELS = {
-  purchase: 'Purchases', sale: 'Sales', payment: 'Payments', withholding: 'Withholding', product: 'Products', party: 'Companies',
-  stock: 'Stock', setting: 'Settings', vat: 'VAT', user: 'Users & sign-in',
-};
 const ACTION_TONE = { create: 'good', update: 'info', delete: 'bad', other: undefined };
 
 function ActivityTab() {
+  // Areas the log records, for the filter and the "Area" column (GET /audit/entities).
+  const { data: entities } = useFetch('/audit/entities');
+  const entityLabel = Object.fromEntries((entities || []).map((e) => [e.id, e.label]));
   const [q, setQ] = useState('');
   const [entity, setEntity] = useState('');
   const [search, setSearch] = useState('');
@@ -1220,7 +1103,7 @@ function ActivityTab() {
         <input type="search" placeholder="Search activity or user…" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />
         <select value={entity} onChange={(e) => setEntity(e.target.value)} aria-label="Area">
           <option value="">All areas</option>
-          {Object.entries(ENTITY_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          {(entities || []).map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}
         </select>
       </div>
     )} actions={<span className="small muted">Latest 500 entries</span>}>
@@ -1234,7 +1117,7 @@ function ActivityTab() {
                   <td className="small">{new Date(`${a.at.replace(' ', 'T')}Z`).toLocaleString()}</td>
                   <td>{a.username || <span className="muted">—</span>}</td>
                   <td><Badge tone={ACTION_TONE[a.action]}>{a.action}</Badge></td>
-                  <td className="small">{ENTITY_LABELS[a.entity] || a.entity}</td>
+                  <td className="small">{entityLabel[a.entity] || a.entity}</td>
                   <td className="wrap">{a.summary}</td>
                 </tr>
               ))}
