@@ -1,0 +1,39 @@
+{
+  "name": "purchase-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NestJS API for the Purchase & Sales Management System (SQLite, VAT/withholding, Ethiopian tax months)",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "nest build",
+    "start": "node dist/main.js",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest",
+    "import": "node --loader ts-node/esm scripts/import.ts",
+    "demo": "node --loader ts-node/esm scripts/demo.ts",
+    "demo:remove": "node --loader ts-node/esm scripts/demo-remove.ts"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.6",
+    "@nestjs/core": "^11.1.6",
+    "@nestjs/platform-express": "^11.1.6",
+    "cookie-parser": "^1.4.7",
+    "exceljs": "^4.4.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.10",
+    "@nestjs/testing": "^11.1.6",
+    "@types/cookie-parser": "^1.4.9",
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.15.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
+  }
+}
