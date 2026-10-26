@@ -4,7 +4,7 @@
 #   docker compose up -d --build
 services:
   backend:
-    build: ./purchase-backend
+    build: ./backend
     container_name: purchase-backend
     restart: unless-stopped
     # No published ports: only the frontend can reach the API.
@@ -20,7 +20,7 @@ services:
 
   frontend:
     build:
-      context: .
+      context: ./frontend
       dockerfile: Dockerfile.frontend
     container_name: purchase-frontend
     restart: unless-stopped

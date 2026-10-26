@@ -1,5 +1,5 @@
 // Role permissions on the client: which menu items, pages and buttons a user gets.
-// The API enforces the same rules (purchase-backend/src/common/permissions.ts); this only hides
+// The API enforces the same rules (backend/src/common/permissions.ts); this only hides
 // what the server would refuse anyway.
 
 export const isAdmin = (user) => user?.role === 'admin';

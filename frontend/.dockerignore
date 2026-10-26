@@ -1,9 +1,5 @@
 node_modules
 .next
-purchase-backend
-data
-scratch
-scripts
 *.log
 .git
 .gitignore

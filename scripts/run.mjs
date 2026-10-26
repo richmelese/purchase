@@ -10,7 +10,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const backendDir = path.join(root, 'purchase-backend');
+const frontendDir = path.join(root, 'frontend');
+const backendDir = path.join(root, 'backend');
 const mode = process.argv[2] === 'start' ? 'start' : 'dev';
 
 const apiPort = process.env.API_PORT || '5000';
@@ -22,19 +23,19 @@ const env = {
 };
 
 if (mode === 'start') {
-  for (const [dir, what] of [[path.join(root, '.next'), 'frontend'], [path.join(backendDir, 'dist'), 'backend']]) {
+  for (const [dir, what] of [[path.join(frontendDir, '.next'), 'frontend'], [path.join(backendDir, 'dist'), 'backend']]) {
     if (!fs.existsSync(dir)) { console.error(`The ${what} is not built yet. Run "npm run build" first.`); process.exit(1); }
   }
 }
 
-const nextBin = path.join(root, 'node_modules', 'next', 'dist', 'bin', 'next');
+const nextBin = path.join(frontendDir, 'node_modules', 'next', 'dist', 'bin', 'next');
 const host = process.env.HOST || '127.0.0.1';
 const port = process.env.PORT || '3000';
 const children = [
   ['api', spawn(process.execPath, mode === 'dev' ? ['scripts/dev.mjs'] : ['dist/main.js'], {
     cwd: backendDir, stdio: 'inherit', env: { ...env, PORT: apiPort, HOST: '127.0.0.1' },
   })],
-  ['web', spawn(process.execPath, [nextBin, mode, '-H', host, '-p', port], { cwd: root, stdio: 'inherit', env })],
+  ['web', spawn(process.execPath, [nextBin, mode, '-H', host, '-p', port], { cwd: frontendDir, stdio: 'inherit', env })],
 ];
 
 let stopping = false;
