@@ -1,8 +1,28 @@
-# Browser ──► frontend (Next.js UI + BFF, :3000) ──► backend (NestJS API, private) ──► SQLite (./data)
+# Browser ──► frontend (Next.js UI + BFF, :3000) ──► backend (NestJS API, private) ──► Postgres
 #
-#   cp .env.example .env      # then set BFF_SHARED_SECRET
+#   cp .env.example .env      # then set BFF_SHARED_SECRET and POSTGRES_PASSWORD
 #   docker compose up -d --build
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: purchase-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-psm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}
+      POSTGRES_DB: ${POSTGRES_DB:-psm}
+    # Published only so you can connect a DB client from the host while developing; the backend
+    # itself reaches it over the private Docker network at host "postgres".
+    ports:
+      - "${POSTGRES_PORT:-5437}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-psm} -d ${POSTGRES_DB:-psm}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   backend:
     build: ./backend
     container_name: purchase-backend
@@ -13,10 +33,11 @@ services:
     environment:
       PORT: 5000
       HOST: 0.0.0.0
-      DATABASE_PATH: /app/data/psm.db
+      DATABASE_URL: postgres://${POSTGRES_USER:-psm}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-psm}
       BFF_SHARED_SECRET: ${BFF_SHARED_SECRET:?Set BFF_SHARED_SECRET in .env (see .env.example)}
-    volumes:
-      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   frontend:
     build:
@@ -32,3 +53,6 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+
+volumes:
+  pgdata:

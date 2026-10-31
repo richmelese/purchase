@@ -51,14 +51,14 @@ interface ComputedInvoice {
 export class ReportsService {
   constructor(private readonly db: DatabaseService) {}
 
-  private getRules(): Rules {
-    const row = this.db.get<Rules>(
+  private async getRules(): Promise<Rules> {
+    const row = await this.db.get<Rules>(
       'SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold FROM settings WHERE id = 1',
     );
     return row || DEFAULT_RULES;
   }
 
-  private loadInvoices(where: string, params: unknown[]): InvoiceRow[] {
+  private async loadInvoices(where: string, params: unknown[]): Promise<InvoiceRow[]> {
     return this.db.all<InvoiceRow>(
       `SELECT id, kind, invoice_no, date, fy, fy_month, party_id, party_name, party_tin, payment_type,
               vat_category, wh_receipt_type, wh_paid
@@ -67,15 +67,15 @@ export class ReportsService {
     );
   }
 
-  private computeMap(rows: InvoiceRow[], rules: Rules): Map<number, ComputedInvoice> {
+  private async computeMap(rows: InvoiceRow[], rules: Rules): Promise<Map<number, ComputedInvoice>> {
     const map = new Map<number, ComputedInvoice>();
     if (!rows.length) return map;
     const ids = rows.map((r) => r.id);
     const placeholders = ids.map(() => '?').join(',');
-    const lineRows = this.db.all<LineRow>(`SELECT * FROM invoice_lines WHERE invoice_id IN (${placeholders})`, ids);
+    const lineRows = await this.db.all<LineRow>(`SELECT * FROM invoice_lines WHERE invoice_id IN (${placeholders})`, ids);
     const linesByInvoice: Record<number, LineRow[]> = {};
     for (const l of lineRows) (linesByInvoice[l.invoice_id] ||= []).push(l);
-    const paidRows = this.db.all<{ invoice_id: number; total: number }>(
+    const paidRows = await this.db.all<{ invoice_id: number; total: number }>(
       `SELECT invoice_id, SUM(amount) as total FROM payments WHERE invoice_id IN (${placeholders}) GROUP BY invoice_id`,
       ids,
     );
@@ -111,10 +111,10 @@ export class ReportsService {
     return map;
   }
 
-  monthly(fy: number) {
-    const rules = this.getRules();
-    const invoices = this.loadInvoices('fy = ?', [fy]);
-    const computed = this.computeMap(invoices, rules);
+  async monthly(fy: number) {
+    const rules = await this.getRules();
+    const invoices = await this.loadInvoices('fy = ?', [fy]);
+    const computed = await this.computeMap(invoices, rules);
 
     const rows = FY_MONTHS.map((month, idx) => {
       let sales = 0, output_vat = 0, purchases = 0, input_vat = 0, wh_on_purchases = 0, wh_on_sales = 0;
@@ -158,26 +158,26 @@ export class ReportsService {
   }
 
   /** Weighted-average purchase cost for a product code (fallback to purchase_price); null = no cost basis. */
-  private purchaseUnitCost(code: string): number | null {
-    const row = this.db.get<{ qty: number; cost: number }>(
+  private async purchaseUnitCost(code: string): Promise<number | null> {
+    const row = await this.db.get<{ qty: number; cost: number }>(
       `SELECT SUM(l.qty) as qty, SUM(l.qty * l.unit_price) as cost
        FROM invoice_lines l JOIN invoices i ON i.id = l.invoice_id
        WHERE i.kind = 'P' AND l.product_code = ?`,
       [code],
     );
     if (row?.qty) return round2(row.cost / row.qty);
-    const product = this.db.get<{ purchase_price: number }>('SELECT purchase_price FROM products WHERE code = ?', [code]);
+    const product = await this.db.get<{ purchase_price: number }>('SELECT purchase_price FROM products WHERE code = ?', [code]);
     if (product && Number(product.purchase_price) > 0) return round2(Number(product.purchase_price));
     return null;
   }
 
-  products(fy: number, month?: string) {
-    const rules = this.getRules();
+  async products(fy: number, month?: string) {
+    const rules = await this.getRules();
     const hasMonth = month !== undefined && month !== '';
     const where = hasMonth ? "fy = ? AND fy_month = ? AND kind = 'S'" : "fy = ? AND kind = 'S'";
     const params = hasMonth ? [fy, Number(month)] : [fy];
-    const invoices = this.loadInvoices(where, params);
-    const computed = this.computeMap(invoices, rules);
+    const invoices = await this.loadInvoices(where, params);
+    const computed = await this.computeMap(invoices, rules);
 
     const groups = new Map<string, { code: string | null; name: string; qty: number; sales: number; vat: number }>();
     for (const inv of invoices) {
@@ -189,7 +189,7 @@ export class ReportsService {
         if (!g) {
           let name = (l as any).description || 'Unspecified';
           if (code) {
-            const product = this.db.get<{ name_en: string }>('SELECT name_en FROM products WHERE code = ?', [code]);
+            const product = await this.db.get<{ name_en: string }>('SELECT name_en FROM products WHERE code = ?', [code]);
             if (product) name = product.name_en;
           }
           g = { code, name, qty: 0, sales: 0, vat: 0 };
@@ -201,22 +201,22 @@ export class ReportsService {
       }
     }
 
-    return [...groups.values()].map((g) => {
-      const unit_cost = g.code ? this.purchaseUnitCost(g.code) : null;
+    return Promise.all([...groups.values()].map(async (g) => {
+      const unit_cost = g.code ? await this.purchaseUnitCost(g.code) : null;
       const cost = unit_cost != null ? round2(g.qty * unit_cost) : null;
       const profit = cost != null ? round2(g.sales - cost) : null;
       const margin = profit != null && g.sales ? round2((profit / g.sales) * 100) : null;
       return { code: g.code, name: g.name, qty: g.qty, sales: g.sales, vat: g.vat, unit_cost, cost, profit, margin };
-    });
+    }));
   }
 
-  parties(kind: 'P' | 'S', fy: number, month?: string) {
-    const rules = this.getRules();
+  async parties(kind: 'P' | 'S', fy: number, month?: string) {
+    const rules = await this.getRules();
     const hasMonth = month !== undefined && month !== '';
     const where = hasMonth ? 'fy = ? AND fy_month = ? AND kind = ?' : 'fy = ? AND kind = ?';
     const params = hasMonth ? [fy, Number(month), kind] : [fy, kind];
-    const invoices = this.loadInvoices(where, params);
-    const computed = this.computeMap(invoices, rules);
+    const invoices = await this.loadInvoices(where, params);
+    const computed = await this.computeMap(invoices, rules);
 
     const groups = new Map<string, { party_id: number | null; name: string; tin: string | null; count: number; taxable: number; vat: number; total: number; wh: number; balance: number }>();
     for (const inv of invoices) {

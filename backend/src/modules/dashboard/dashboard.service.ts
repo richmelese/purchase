@@ -54,22 +54,22 @@ const INVOICE_COLUMNS = `id, kind, invoice_no, date, fy, fy_month, party_id, par
 export class DashboardService {
   constructor(private readonly db: DatabaseService) {}
 
-  private getRules(): Rules {
-    const row = this.db.get<Rules>(
+  private async getRules(): Promise<Rules> {
+    const row = await this.db.get<Rules>(
       'SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold FROM settings WHERE id = 1',
     );
     return row || DEFAULT_RULES;
   }
 
-  private computeInvoices(rows: InvoiceRow[], rules: Rules): Map<number, ComputedInvoice> {
+  private async computeInvoices(rows: InvoiceRow[], rules: Rules): Promise<Map<number, ComputedInvoice>> {
     const map = new Map<number, ComputedInvoice>();
     if (!rows.length) return map;
     const ids = rows.map((r) => r.id);
     const placeholders = ids.map(() => '?').join(',');
-    const lineRows = this.db.all<LineRow>(`SELECT * FROM invoice_lines WHERE invoice_id IN (${placeholders})`, ids);
+    const lineRows = await this.db.all<LineRow>(`SELECT * FROM invoice_lines WHERE invoice_id IN (${placeholders})`, ids);
     const linesByInvoice: Record<number, LineRow[]> = {};
     for (const l of lineRows) (linesByInvoice[l.invoice_id] ||= []).push(l);
-    const paidRows = this.db.all<{ invoice_id: number; total: number }>(
+    const paidRows = await this.db.all<{ invoice_id: number; total: number }>(
       `SELECT invoice_id, SUM(amount) as total FROM payments WHERE invoice_id IN (${placeholders}) GROUP BY invoice_id`,
       ids,
     );
@@ -97,23 +97,23 @@ export class DashboardService {
   }
 
   /** Mirrors the inventory module's stock formula (current = opening + stock_in - stock_out); kept local on purpose. */
-  private stock() {
-    const products = this.db.all<any>(
+  private async stock() {
+    const products = await this.db.all<any>(
       'SELECT id, code, name_en, track_stock, min_stock, opening_stock, purchase_price FROM products',
     );
     if (!products.length) return { value: 0, items: 0, low: [] as any[] };
 
-    const stockIn = this.db.all<{ product_code: string; qty: number; cost: number }>(
+    const stockIn = await this.db.all<{ product_code: string; qty: number; cost: number }>(
       `SELECT l.product_code as product_code, SUM(l.qty) as qty, SUM(l.qty * l.unit_price) as cost
        FROM invoice_lines l JOIN invoices i ON i.id = l.invoice_id
        WHERE i.kind = 'P' AND l.product_code IS NOT NULL GROUP BY l.product_code`,
     );
-    const stockOutSales = this.db.all<{ product_code: string; qty: number }>(
+    const stockOutSales = await this.db.all<{ product_code: string; qty: number }>(
       `SELECT l.product_code as product_code, SUM(l.qty) as qty
        FROM invoice_lines l JOIN invoices i ON i.id = l.invoice_id
        WHERE i.kind = 'S' AND l.product_code IS NOT NULL GROUP BY l.product_code`,
     );
-    const stockOutIssues = this.db.all<{ product_id: number; qty: number }>(
+    const stockOutIssues = await this.db.all<{ product_id: number; qty: number }>(
       'SELECT product_id, SUM(qty) as qty FROM stock_issues GROUP BY product_id',
     );
 
@@ -141,12 +141,12 @@ export class DashboardService {
     return { value, items: products.length, low };
   }
 
-  summary(fy: number) {
-    const rules = this.getRules();
+  async summary(fy: number) {
+    const rules = await this.getRules();
 
     // --- fy-scoped: totals / series / unreported counts / top parties ---
-    const fyInvoices = this.db.all<InvoiceRow>(`SELECT ${INVOICE_COLUMNS} FROM invoices WHERE fy = ?`, [fy]);
-    const fyComputed = this.computeInvoices(fyInvoices, rules);
+    const fyInvoices = await this.db.all<InvoiceRow>(`SELECT ${INVOICE_COLUMNS} FROM invoices WHERE fy = ?`, [fy]);
+    const fyComputed = await this.computeInvoices(fyInvoices, rules);
 
     let sales = 0, salesVat = 0, purchases = 0, purchaseVat = 0;
     let salesCount = 0, purchaseCount = 0;
@@ -183,15 +183,15 @@ export class DashboardService {
     }
 
     const vatPayable = round2(salesVat - purchaseVat);
-    const openingCreditRow = this.db.get<{ amount: number }>(
+    const openingCreditRow = await this.db.get<{ amount: number }>(
       'SELECT amount FROM vat_adjustments WHERE fy = ? AND line_no = 195 AND fy_month = 0',
       [fy],
     );
     const creditCarried = round2(openingCreditRow?.amount || 0);
 
     // --- global (not fy-scoped): current open balances / withholding backlog / recent activity ---
-    const creditInvoices = this.db.all<InvoiceRow>(`SELECT ${INVOICE_COLUMNS} FROM invoices WHERE payment_type = 'Credit'`);
-    const creditComputed = this.computeInvoices(creditInvoices, rules);
+    const creditInvoices = await this.db.all<InvoiceRow>(`SELECT ${INVOICE_COLUMNS} FROM invoices WHERE payment_type = 'Credit'`);
+    const creditComputed = await this.computeInvoices(creditInvoices, rules);
     let payablesAmount = 0, payablesCount = 0, receivablesAmount = 0, receivablesCount = 0;
     for (const inv of creditInvoices) {
       const c = creditComputed.get(inv.id)!;
@@ -206,8 +206,8 @@ export class DashboardService {
       }
     }
 
-    const purchaseInvoices = this.db.all<InvoiceRow>(`SELECT ${INVOICE_COLUMNS} FROM invoices WHERE kind = 'P'`);
-    const purchasesComputed = this.computeInvoices(purchaseInvoices, rules);
+    const purchaseInvoices = await this.db.all<InvoiceRow>(`SELECT ${INVOICE_COLUMNS} FROM invoices WHERE kind = 'P'`);
+    const purchasesComputed = await this.computeInvoices(purchaseInvoices, rules);
     let whAmount = 0, whCount = 0;
     for (const inv of purchaseInvoices) {
       const c = purchasesComputed.get(inv.id)!;
@@ -217,17 +217,17 @@ export class DashboardService {
       }
     }
 
-    const recentHeaders = this.db.all<{ id: number; kind: 'P' | 'S'; invoice_no: string; date: string; party_name: string | null; payment_type: string }>(
+    const recentHeaders = await this.db.all<{ id: number; kind: 'P' | 'S'; invoice_no: string; date: string; party_name: string | null; payment_type: string }>(
       'SELECT id, kind, invoice_no, date, party_name, payment_type FROM invoices ORDER BY created_at DESC, id DESC LIMIT 10',
     );
     const recentIds = recentHeaders.map((r) => r.id);
     let recentComputed = new Map<number, ComputedInvoice>();
     if (recentIds.length) {
-      const recentInvoices = this.db.all<InvoiceRow>(
+      const recentInvoices = await this.db.all<InvoiceRow>(
         `SELECT ${INVOICE_COLUMNS} FROM invoices WHERE id IN (${recentIds.map(() => '?').join(',')})`,
         recentIds,
       );
-      recentComputed = this.computeInvoices(recentInvoices, rules);
+      recentComputed = await this.computeInvoices(recentInvoices, rules);
     }
     const recent = recentHeaders.map((r) => ({
       id: r.id,
@@ -248,7 +248,7 @@ export class DashboardService {
         purchases, purchaseCount, purchaseVat,
         vatPayable, creditCarried,
       },
-      stock: this.stock(),
+      stock: await this.stock(),
       payables: { amount: payablesAmount, count: payablesCount },
       receivables: { amount: receivablesAmount, count: receivablesCount },
       whPending: { amount: whAmount, count: whCount },

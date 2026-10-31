@@ -17,8 +17,8 @@ export class ProductsController {
 
   @Get('next-code')
   @RequirePermission('products', 'view')
-  nextCode() {
-    return { code: this.inventory.getNextProductCode() };
+  async nextCode() {
+    return { code: await this.inventory.getNextProductCode() };
   }
 
   @Get(':id/movements')
@@ -42,7 +42,7 @@ export class ProductsController {
   @Delete(':id')
   @HttpCode(204)
   @RequirePermission('products', 'delete')
-  remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
-    this.inventory.deleteProduct(id, user);
+  async remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    await this.inventory.deleteProduct(id, user);
   }
 }

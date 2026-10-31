@@ -14,11 +14,11 @@ export class PortalService {
     return user.party_id;
   }
 
-  company(user: AuthUser) {
+  async company(user: AuthUser) {
     const partyId = this.partyId(user);
-    const party = this.db.get<any>('SELECT * FROM parties WHERE id = ?', [partyId]);
+    const party = await this.db.get<any>('SELECT * FROM parties WHERE id = ?', [partyId]);
     if (!party) throw new NotFoundException('Party not found');
-    const settings = this.db.get<{ company_name: string; company_tin: string; company_address: string; wh_rate: number }>(
+    const settings = await this.db.get<{ company_name: string; company_tin: string; company_address: string; wh_rate: number }>(
       'SELECT company_name, company_tin, company_address, wh_rate FROM settings WHERE id = 1',
     );
     let stored: any = {};
@@ -37,37 +37,37 @@ export class PortalService {
     };
   }
 
-  statement(user: AuthUser) {
+  async statement(user: AuthUser) {
     const partyId = this.partyId(user);
-    const full = getPartyStatement(this.db, partyId);
+    const full = await getPartyStatement(this.db, partyId);
     if (!full) throw new NotFoundException('Party not found');
     const { party, ...rest } = full;
     return rest;
   }
 
-  invoices(user: AuthUser, kind?: string) {
+  async invoices(user: AuthUser, kind?: string) {
     const partyId = this.partyId(user);
     const k = kind === 'S' || kind === 'P' ? kind : undefined;
-    const rules = loadRules(this.db);
+    const rules = await loadRules(this.db);
     let sql = 'SELECT id FROM invoices WHERE party_id = ?';
     const params: unknown[] = [partyId];
     if (k) { sql += ' AND kind = ?'; params.push(k); }
     sql += ' ORDER BY date DESC, id DESC';
-    const ids = this.db.all<{ id: number }>(sql, params);
-    return ids.map((r) => {
-      const full = getInvoiceFull(this.db, r.id, rules)!;
+    const ids = await this.db.all<{ id: number }>(sql, params);
+    return Promise.all(ids.map(async (r) => {
+      const full = (await getInvoiceFull(this.db, r.id, rules))!;
       return {
         id: full.id, invoice_no: full.invoice_no, date: full.date, receipt_type: full.receipt_type,
         vat_receipt_no: full.vat_receipt_no, payment_type: full.payment_type,
         grand_total: full.grand_total, balance: full.balance,
       };
-    });
+    }));
   }
 
-  invoiceDetail(user: AuthUser, id: number) {
+  async invoiceDetail(user: AuthUser, id: number) {
     const partyId = this.partyId(user);
-    const rules = loadRules(this.db);
-    const full = getInvoiceFull(this.db, id, rules);
+    const rules = await loadRules(this.db);
+    const full = await getInvoiceFull(this.db, id, rules);
     if (!full || full.party_id !== partyId) throw new NotFoundException('Invoice not found');
     return full;
   }

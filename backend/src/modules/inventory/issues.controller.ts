@@ -24,7 +24,7 @@ export class IssuesController {
   @Delete(':id')
   @HttpCode(204)
   @RequirePermission('inventory', 'delete')
-  remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
-    this.inventory.deleteIssue(id, user);
+  async remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    await this.inventory.deleteIssue(id, user);
   }
 }

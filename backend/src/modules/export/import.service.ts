@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import ExcelJS from 'exceljs';
-import { DatabaseService } from '../../db/database.service';
+import { DatabaseService, SQL_NOW } from '../../db/database.service';
 import type { AuthUser } from '../../common/auth.guard';
 import { logActivity } from '../../common/activity-log';
 import { UNITS } from '../../common/calc';
@@ -96,24 +96,24 @@ export class ImportService {
       const phone = phoneCol ? cellText(row.getCell(phoneCol)) : '';
       const email = emailCol ? cellText(row.getCell(emailCol)) : '';
 
-      const existing = tin ? this.db.get<{ id: number }>('SELECT id FROM parties WHERE tin = ?', [tin]) : undefined;
+      const existing = tin ? await this.db.get<{ id: number }>('SELECT id FROM parties WHERE tin = ?', [tin]) : undefined;
       if (existing) {
-        this.db.run(
+        await this.db.run(
           `UPDATE parties SET name = ?, mrc1 = ?, mrc2 = ?, mrc3 = ?,
-             phone = COALESCE(NULLIF(?, ''), phone), email = COALESCE(NULLIF(?, ''), email), updated_at = datetime('now')
+             phone = COALESCE(NULLIF(?, ''), phone), email = COALESCE(NULLIF(?, ''), email), updated_at = ${SQL_NOW}
            WHERE id = ?`,
           [name, mrc1, mrc2, mrc3, phone, email, existing.id],
         );
         updated++;
       } else {
-        this.db.run(
+        await this.db.run(
           'INSERT INTO parties (tin, name, type, mrc1, mrc2, mrc3, phone, email) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
           [tin || null, name, type, mrc1, mrc2, mrc3, phone, email],
         );
         added++;
       }
     }
-    logActivity(this.db, user, 'other', 'parties', null, `imported ${added + updated} ${type.toLowerCase()}s (${added} added, ${updated} updated)`);
+    await logActivity(this.db, user, 'other', 'parties', null, `imported ${added + updated} ${type.toLowerCase()}s (${added} added, ${updated} updated)`);
     return { sheet: sheet.name, added, updated, skipped };
   }
 
@@ -157,18 +157,18 @@ export class ImportService {
       const purchase_price = purchaseCol ? Number(cellText(row.getCell(purchaseCol))) || 0 : 0;
       const selling_price = sellingCol ? Number(cellText(row.getCell(sellingCol))) || 0 : 0;
 
-      const existing = this.db.get<{ id: number }>('SELECT id FROM products WHERE code = ?', [code]);
+      const existing = await this.db.get<{ id: number }>('SELECT id FROM products WHERE code = ?', [code]);
       if (existing) {
-        this.db.run(
+        await this.db.run(
           `UPDATE products SET name_en = COALESCE(NULLIF(?, ''), name_en), name_am = ?, category = ?, brand = ?,
              model = ?, serial_no = ?, unit = COALESCE(?, unit), min_stock = ?, opening_stock = ?,
-             purchase_price = ?, selling_price = ?, updated_at = datetime('now')
+             purchase_price = ?, selling_price = ?, updated_at = ${SQL_NOW}
            WHERE id = ?`,
           [nameEn, name_am, category, brand, model, serial_no, unit, min_stock, opening_stock, purchase_price, selling_price, existing.id],
         );
         updated++;
       } else {
-        this.db.run(
+        await this.db.run(
           `INSERT INTO products (code, name_en, name_am, category, brand, model, serial_no, unit, min_stock, opening_stock, purchase_price, selling_price)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [code, nameEn || code, name_am, category, brand, model, serial_no, unit, min_stock, opening_stock, purchase_price, selling_price],
@@ -176,7 +176,7 @@ export class ImportService {
         added++;
       }
     }
-    logActivity(this.db, user, 'other', 'products', null, `imported ${added + updated} products (${added} added, ${updated} updated)`);
+    await logActivity(this.db, user, 'other', 'products', null, `imported ${added + updated} products (${added} added, ${updated} updated)`);
     return { sheet: sheet.name, added, updated, skipped };
   }
 }

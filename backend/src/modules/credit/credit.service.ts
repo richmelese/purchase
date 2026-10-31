@@ -44,8 +44,8 @@ interface LineRow extends RawLine {
 export class CreditService {
   constructor(private readonly db: DatabaseService) {}
 
-  private getRules(): Rules {
-    const row = this.db.get<Rules>(
+  private async getRules(): Promise<Rules> {
+    const row = await this.db.get<Rules>(
       'SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold FROM settings WHERE id = 1',
     );
     return row || DEFAULT_RULES;
@@ -55,9 +55,9 @@ export class CreditService {
     return CREDIT_BUCKETS.map((label) => ({ label }));
   }
 
-  list(kind: Kind, all: boolean) {
-    const rules = this.getRules();
-    const invoices = this.db.all<InvoiceRow>(
+  async list(kind: Kind, all: boolean) {
+    const rules = await this.getRules();
+    const invoices = await this.db.all<InvoiceRow>(
       `SELECT id, invoice_no, date, party_name, party_tin, vat_category, wh_receipt_type, wh_paid
        FROM invoices WHERE kind = ? AND payment_type = 'Credit' ORDER BY date, id`,
       [kind],
@@ -66,14 +66,14 @@ export class CreditService {
 
     const ids = invoices.map((i) => i.id);
     const placeholders = ids.map(() => '?').join(',');
-    const lineRows = this.db.all<LineRow>(
+    const lineRows = await this.db.all<LineRow>(
       `SELECT * FROM invoice_lines WHERE invoice_id IN (${placeholders})`,
       ids,
     );
     const linesByInvoice: Record<number, LineRow[]> = {};
     for (const l of lineRows) (linesByInvoice[l.invoice_id] ||= []).push(l);
 
-    const paidRows = this.db.all<{ invoice_id: number; total: number }>(
+    const paidRows = await this.db.all<{ invoice_id: number; total: number }>(
       `SELECT invoice_id, SUM(amount) as total FROM payments WHERE invoice_id IN (${placeholders}) GROUP BY invoice_id`,
       ids,
     );

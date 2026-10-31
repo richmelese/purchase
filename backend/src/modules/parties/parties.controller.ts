@@ -43,7 +43,7 @@ export class PartiesController {
   @HttpCode(204)
   @RequirePermission('parties', 'delete')
   remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
-    this.parties.remove(id, user);
+    return this.parties.remove(id, user);
   }
 
   @Post(':id/account')

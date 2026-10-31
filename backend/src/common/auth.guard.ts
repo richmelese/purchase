@@ -24,12 +24,12 @@ const ALWAYS_ALLOWED = ['/api/auth/logout', '/api/auth/me'];
 export class AuthGuard implements CanActivate {
   constructor(private readonly db: DatabaseService) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<Request>();
-    const session = currentSession(this.db, req);
+    const session = await currentSession(this.db, req);
     if (!session) throw new UnauthorizedException('Sign in required');
 
-    const user = loadFullUser(this.db, session.user_id);
+    const user = await loadFullUser(this.db, session.user_id);
     if (!user || !user.active) throw new UnauthorizedException('Sign in required');
     req.user = user;
 

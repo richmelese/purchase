@@ -18,8 +18,8 @@ export class SalesController {
 
   @Get('next-number')
   @RequirePermission('sales', 'view')
-  nextNumber() {
-    return { number: this.invoices.nextNumber('S') };
+  async nextNumber() {
+    return { number: await this.invoices.nextNumber('S') };
   }
 
   @Get(':id')
@@ -36,8 +36,8 @@ export class SalesController {
 
   @Post('report-status')
   @RequirePermission('sales', 'edit')
-  reportStatus(@Body() body: { ids: number[]; status: string }, @CurrentUser() user: AuthUser) {
-    this.invoices.bulkReportStatus('S', body.ids, body.status, user);
+  async reportStatus(@Body() body: { ids: number[]; status: string }, @CurrentUser() user: AuthUser) {
+    await this.invoices.bulkReportStatus('S', body.ids, body.status, user);
     return { ok: true };
   }
 
@@ -63,6 +63,6 @@ export class SalesController {
   @HttpCode(204)
   @RequirePermission('sales', 'delete')
   remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    this.invoices.remove('S', Number(id), user);
+    return this.invoices.remove('S', Number(id), user);
   }
 }

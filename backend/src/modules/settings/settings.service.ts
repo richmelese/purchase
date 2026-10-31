@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { DatabaseService } from '../../db/database.service';
+import { DatabaseService, SQL_NOW } from '../../db/database.service';
 import type { AuthUser } from '../../common/auth.guard';
 import { logActivity } from '../../common/activity-log';
 import { currentFiscalYear } from '../../common/ethiopian';
@@ -81,11 +81,11 @@ export class SettingsService {
 
   // ---------- Settings (tax rules) ----------
 
-  getSettings() {
-    return this.settingsShape(this.settingsRow());
+async getSettings() {
+    return this.settingsShape(await this.settingsRow());
   }
 
-  updateSettings(
+  async updateSettings(
     body: { vat_rate?: unknown; wh_rate?: unknown; wh_goods_threshold?: unknown; wh_service_threshold?: unknown },
     user?: AuthUser,
   ) {
@@ -100,19 +100,19 @@ export class SettingsService {
     if (!Number.isFinite(wh_service_threshold) || wh_service_threshold < 0) fields.wh_service_threshold = 'Enter a non-negative number';
     if (Object.keys(fields).length) throw new BadRequestException({ error: 'Please check the form', fields });
 
-    this.db.run(
+    await this.db.run(
       `UPDATE settings SET vat_rate = ?, wh_rate = ?, wh_goods_threshold = ?, wh_service_threshold = ?,
-         updated_at = datetime('now'), updated_by = ? WHERE id = 1`,
+         updated_at = ${SQL_NOW}, updated_by = ? WHERE id = 1`,
       [vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold, user?.id ?? null],
     );
-    logActivity(this.db, user, 'update', 'settings', 'settings', 'updated tax rules');
+    await logActivity(this.db, user, 'update', 'settings', 'settings', 'updated tax rules');
     return this.getSettings();
   }
 
-  private settingsRow(): SettingsRow {
-    return this.db.get<SettingsRow>(
+  private async settingsRow(): Promise<SettingsRow> {
+    return (await this.db.get<SettingsRow>(
       'SELECT company_name, company_tin, company_address, vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold, profile FROM settings WHERE id = 1',
-    )!;
+    ))!;
   }
 
   private settingsShape(row: SettingsRow) {
@@ -134,24 +134,24 @@ export class SettingsService {
 
   // ---------- Company profile ----------
 
-  getCompanyProfile() {
-    const row = this.settingsRow();
+  async getCompanyProfile() {
+    const row = await this.settingsRow();
     const profile = mergeCompanyProfile(this.parseProfile(row.profile), row.company_name);
     return { ...profile, options: companyProfileOptions() };
   }
 
-  updateCompanyProfile(body: Partial<CompanyProfile> & Record<string, unknown>, user?: AuthUser) {
+  async updateCompanyProfile(body: Partial<CompanyProfile> & Record<string, unknown>, user?: AuthUser) {
     const { options: _options, updated_at: _updatedAt, updated_by: _updatedBy, ...incoming } = body || {};
-    const row = this.settingsRow();
+    const row = await this.settingsRow();
     const merged = mergeCompanyProfile(incoming as Partial<CompanyProfile>, row.company_name);
     merged.updated_at = new Date().toISOString();
     merged.updated_by = user?.username ?? null;
 
-    this.db.run(
-      `UPDATE settings SET profile = ?, updated_at = datetime('now'), updated_by = ? WHERE id = 1`,
+    await this.db.run(
+      `UPDATE settings SET profile = ?, updated_at = ${SQL_NOW}, updated_by = ? WHERE id = 1`,
       [JSON.stringify(merged), user?.id ?? null],
     );
-    logActivity(this.db, user, 'update', 'settings', 'settings', 'updated company profile');
+    await logActivity(this.db, user, 'update', 'settings', 'settings', 'updated company profile');
     return { ...merged, options: companyProfileOptions() };
   }
 
@@ -165,23 +165,23 @@ export class SettingsService {
 
   // ---------- Lookups ----------
 
-  getLookups() {
-    this.ensureSeeded();
+  async getLookups() {
+    await this.ensureSeeded();
     return {
       lists: LOOKUP_LISTS.map(({ list, title, sheet, editable, numeric }) => ({ list, title, sheet, editable, numeric })),
-      values: this.allValues(),
+      values: await this.allValues(),
     };
   }
 
-  addLookupValue(list: string, body: { value?: unknown; label?: unknown }, user?: AuthUser) {
-    this.ensureSeeded();
+  async addLookupValue(list: string, body: { value?: unknown; label?: unknown }, user?: AuthUser) {
+    await this.ensureSeeded();
     const meta = this.requireEditableList(list);
     const label = String(body.label ?? '').trim();
     if (!label) throw new BadRequestException({ error: 'Please check the form', fields: { label: 'Required' } });
 
     let value: string;
     if (meta.numeric) {
-      const max = this.db.get<{ m: number | null }>(
+      const max = await this.db.get<{ m: number | null }>(
         'SELECT MAX(CAST(value AS INTEGER)) m FROM lookup_values WHERE list = ?', [list],
       );
       value = String((max?.m ?? 0) + 1);
@@ -190,36 +190,36 @@ export class SettingsService {
       if (!value) throw new BadRequestException({ error: 'Please check the form', fields: { value: 'Required' } });
     }
 
-    const exists = this.db.get('SELECT 1 FROM lookup_values WHERE list = ? AND value = ?', [list, value]);
+    const exists = await this.db.get('SELECT 1 FROM lookup_values WHERE list = ? AND value = ?', [list, value]);
     if (exists) throw new BadRequestException({ error: 'That value already exists', fields: { value: 'Already exists' } });
 
-    const maxOrder = this.db.get<{ m: number | null }>('SELECT MAX(sort_order) m FROM lookup_values WHERE list = ?', [list]);
-    this.db.run(
+    const maxOrder = await this.db.get<{ m: number | null }>('SELECT MAX(sort_order) m FROM lookup_values WHERE list = ?', [list]);
+    await this.db.run(
       'INSERT INTO lookup_values (list, value, label, locked, sort_order) VALUES (?, ?, ?, 0, ?)',
       [list, value, label, (maxOrder?.m ?? -1) + 1],
     );
-    logActivity(this.db, user, 'create', 'lookups', `${list}:${value}`, `added "${label}" to ${meta.title}`);
+    await logActivity(this.db, user, 'create', 'lookups', `${list}:${value}`, `added "${label}" to ${meta.title}`);
     return this.allValues();
   }
 
-  renameLookupValue(list: string, value: string, body: { label?: unknown }, user?: AuthUser) {
-    this.ensureSeeded();
+  async renameLookupValue(list: string, value: string, body: { label?: unknown }, user?: AuthUser) {
+    await this.ensureSeeded();
     const meta = this.requireEditableList(list);
-    const row = this.db.get<{ label: string }>('SELECT label FROM lookup_values WHERE list = ? AND value = ?', [list, value]);
+    const row = await this.db.get<{ label: string }>('SELECT label FROM lookup_values WHERE list = ? AND value = ?', [list, value]);
     if (!row) throw new NotFoundException('That value was not found');
 
     const label = String(body.label ?? '').trim();
     if (!label) throw new BadRequestException({ error: 'Please check the form', fields: { label: 'Required' } });
 
-    this.db.run('UPDATE lookup_values SET label = ? WHERE list = ? AND value = ?', [label, list, value]);
-    logActivity(this.db, user, 'update', 'lookups', `${list}:${value}`, `renamed "${row.label}" to "${label}" in ${meta.title}`);
+    await this.db.run('UPDATE lookup_values SET label = ? WHERE list = ? AND value = ?', [label, list, value]);
+    await logActivity(this.db, user, 'update', 'lookups', `${list}:${value}`, `renamed "${row.label}" to "${label}" in ${meta.title}`);
     return this.allValues();
   }
 
-  deleteLookupValue(list: string, value: string, user?: AuthUser) {
-    this.ensureSeeded();
+  async deleteLookupValue(list: string, value: string, user?: AuthUser) {
+    await this.ensureSeeded();
     const meta = this.requireEditableList(list);
-    const row = this.db.get<{ label: string; locked: number }>(
+    const row = await this.db.get<{ label: string; locked: number }>(
       'SELECT label, locked FROM lookup_values WHERE list = ? AND value = ?', [list, value],
     );
     if (!row) throw new NotFoundException('That value was not found');
@@ -228,17 +228,17 @@ export class SettingsService {
     // refuse deletion here when `value` is still referenced by an existing record (cross-table
     // reference check skipped for now since those modules may not exist yet).
 
-    this.db.run('DELETE FROM lookup_values WHERE list = ? AND value = ?', [list, value]);
-    logActivity(this.db, user, 'delete', 'lookups', `${list}:${value}`, `removed "${row.label}" from ${meta.title}`);
+    await this.db.run('DELETE FROM lookup_values WHERE list = ? AND value = ?', [list, value]);
+    await logActivity(this.db, user, 'delete', 'lookups', `${list}:${value}`, `removed "${row.label}" from ${meta.title}`);
     return this.allValues();
   }
 
-  moveLookupValue(list: string, value: string, dir: 'up' | 'down', user?: AuthUser) {
-    this.ensureSeeded();
+  async moveLookupValue(list: string, value: string, dir: 'up' | 'down', user?: AuthUser) {
+    await this.ensureSeeded();
     const meta = this.requireEditableList(list);
     if (dir !== 'up' && dir !== 'down') throw new BadRequestException({ error: 'dir must be "up" or "down"' });
 
-    const rows = this.db.all<{ value: string; sort_order: number }>(
+    const rows = await this.db.all<{ value: string; sort_order: number }>(
       'SELECT value, sort_order FROM lookup_values WHERE list = ? ORDER BY sort_order ASC, id ASC', [list],
     );
     const idx = rows.findIndex((r) => r.value === value);
@@ -248,11 +248,11 @@ export class SettingsService {
 
     const a = rows[idx];
     const b = rows[swapIdx];
-    this.db.transaction(() => {
-      this.db.run('UPDATE lookup_values SET sort_order = ? WHERE list = ? AND value = ?', [b.sort_order, list, a.value]);
-      this.db.run('UPDATE lookup_values SET sort_order = ? WHERE list = ? AND value = ?', [a.sort_order, list, b.value]);
+    await this.db.transaction(async (trx) => {
+      await trx.run('UPDATE lookup_values SET sort_order = ? WHERE list = ? AND value = ?', [b.sort_order, list, a.value]);
+      await trx.run('UPDATE lookup_values SET sort_order = ? WHERE list = ? AND value = ?', [a.sort_order, list, b.value]);
     });
-    logActivity(this.db, user, 'update', 'lookups', `${list}:${value}`, `reordered ${meta.title}`);
+    await logActivity(this.db, user, 'update', 'lookups', `${list}:${value}`, `reordered ${meta.title}`);
     return this.allValues();
   }
 
@@ -263,10 +263,10 @@ export class SettingsService {
     return meta;
   }
 
-  private allValues(): Record<string, { value: string; label: string; locked: boolean }[]> {
+  private async allValues(): Promise<Record<string, { value: string; label: string; locked: boolean }[]>> {
     const values: Record<string, { value: string; label: string; locked: boolean }[]> = {};
     for (const l of LOOKUP_LISTS) {
-      const rows = this.db.all<{ value: string; label: string; locked: number }>(
+      const rows = await this.db.all<{ value: string; label: string; locked: number }>(
         'SELECT value, label, locked FROM lookup_values WHERE list = ? ORDER BY sort_order ASC, id ASC', [l.list],
       );
       values[l.list] = rows.map((r) => ({ value: r.value, label: r.label, locked: !!r.locked }));
@@ -275,24 +275,25 @@ export class SettingsService {
   }
 
   /** Lazily seeds `lookup_values` from calc.ts's constants (+ the additional lists) the first time any lookup endpoint is hit. Idempotent. */
-  private ensureSeeded() {
+  private async ensureSeeded() {
     for (const l of LOOKUP_LISTS) {
-      const has = this.db.get('SELECT 1 FROM lookup_values WHERE list = ? LIMIT 1', [l.list]);
+      const has = await this.db.get('SELECT 1 FROM lookup_values WHERE list = ? LIMIT 1', [l.list]);
       if (has) continue;
       const seeds = SEED_VALUES[l.list] || [];
-      seeds.forEach((s, i) => {
-        this.db.run(
-          'INSERT OR IGNORE INTO lookup_values (list, value, label, locked, sort_order) VALUES (?, ?, ?, ?, ?)',
+      for (let i = 0; i < seeds.length; i++) {
+        const s = seeds[i];
+        await this.db.run(
+          'INSERT INTO lookup_values (list, value, label, locked, sort_order) VALUES (?, ?, ?, ?, ?) ON CONFLICT (list, value) DO NOTHING',
           [l.list, s.value, s.label, s.locked ? 1 : 0, i],
         );
-      });
+      }
     }
   }
 
   // ---------- Fiscal years ----------
 
-  getFiscalYears(): number[] {
-    const rows = this.db.all<{ fy: number }>('SELECT DISTINCT fy FROM invoices');
+  async getFiscalYears(): Promise<number[]> {
+    const rows = await this.db.all<{ fy: number }>('SELECT DISTINCT fy FROM invoices');
     const years = new Set<number>(rows.map((r) => r.fy));
     years.add(currentFiscalYear());
     return Array.from(years).sort((a, b) => a - b);

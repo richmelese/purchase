@@ -21,9 +21,9 @@ export class UsersController {
 
   @Post()
   @RequirePermission('users', 'create')
-  create(@Body() body: CreateUserBody, @CurrentUser() actingUser: AuthUser) {
-    const created = this.users.create(body);
-    logActivity(this.db, actingUser, 'create', 'users', created.id, `created user ${created.username}`);
+  async create(@Body() body: CreateUserBody, @CurrentUser() actingUser: AuthUser) {
+    const created = await this.users.create(body);
+    await logActivity(this.db, actingUser, 'create', 'users', created.id, `created user ${created.username}`);
     return created;
   }
 
@@ -31,22 +31,22 @@ export class UsersController {
   // assignment) in one request, each gated by its own task, so UsersService.update does the
   // fine-grained can() checks itself and throws 403 only for groups actually present in the body.
   @Put(':id')
-  update(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateUserBody, @CurrentUser() actingUser: AuthUser) {
-    const updated = this.users.update(id, body, actingUser);
+  async update(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateUserBody, @CurrentUser() actingUser: AuthUser) {
+    const updated = await this.users.update(id, body, actingUser);
     let summary: string;
     if (body.password) summary = `reset password for ${updated.username}`;
     else if (ASSIGNMENT_FIELDS.some((k) => k in body)) summary = `updated role/company access for ${updated.username}`;
     else summary = `updated user ${updated.username}`;
-    logActivity(this.db, actingUser, 'update', 'users', id, summary);
+    await logActivity(this.db, actingUser, 'update', 'users', id, summary);
     return updated;
   }
 
   @Delete(':id')
   @RequirePermission('users', 'delete')
-  remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() actingUser: AuthUser) {
-    const target = this.db.get<{ username: string }>('SELECT username FROM users WHERE id = ?', [id]);
-    const list = this.users.remove(id, actingUser);
-    logActivity(this.db, actingUser, 'delete', 'users', id, `deleted user ${target?.username ?? id}`);
+  async remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() actingUser: AuthUser) {
+    const target = await this.db.get<{ username: string }>('SELECT username FROM users WHERE id = ?', [id]);
+    const list = await this.users.remove(id, actingUser);
+    await logActivity(this.db, actingUser, 'delete', 'users', id, `deleted user ${target?.username ?? id}`);
     return list;
   }
 }

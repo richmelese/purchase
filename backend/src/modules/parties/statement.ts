@@ -13,8 +13,8 @@ export interface SettingsRules {
 
 const DEFAULT_RULES: SettingsRules = { vat_rate: 0.15, wh_rate: 0.03, wh_goods_threshold: 20000, wh_service_threshold: 10000 };
 
-export function loadRules(db: DatabaseService): SettingsRules {
-  const row = db.get<SettingsRules>(
+export async function loadRules(db: DatabaseService): Promise<SettingsRules> {
+  const row = await db.get<SettingsRules>(
     'SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold FROM settings WHERE id = 1',
   );
   return row || DEFAULT_RULES;
@@ -35,15 +35,15 @@ interface ComputedInvoice {
   lines: ComputedLine[]; payments: any[];
 }
 
-function computeInvoice(db: DatabaseService, inv: InvoiceRow, rules: SettingsRules): ComputedInvoice {
-  const rawLines = db.all<RawLine>('SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY line_no', [inv.id]);
+async function computeInvoice(db: DatabaseService, inv: InvoiceRow, rules: SettingsRules): Promise<ComputedInvoice> {
+  const rawLines = await db.all<RawLine>('SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY line_no', [inv.id]);
   const lines = rawLines.map((l) => computeLine(l, rules));
   const totals = computeTotals(lines);
   const wh = computeWithholding(
     { taxable_amount: totals.taxable_amount, vat_category: inv.vat_category, wh_receipt_type: inv.wh_receipt_type, wh_paid: inv.wh_paid },
     rules,
   );
-  const payments = db.all<{ id: number; date: string; amount: number; method: string | null; reference: string | null }>(
+  const payments = await db.all<{ id: number; date: string; amount: number; method: string | null; reference: string | null }>(
     'SELECT * FROM payments WHERE invoice_id = ? ORDER BY date, id', [inv.id],
   );
   const amount_paid = round2(payments.reduce((s, p) => s + Number(p.amount || 0), 0));
@@ -65,13 +65,13 @@ interface SideResult {
   balanceSum: number;
 }
 
-function buildSide(db: DatabaseService, partyId: number, kind: 'P' | 'S', rules: SettingsRules): SideResult {
-  const invoices = db.all<InvoiceRow>('SELECT * FROM invoices WHERE party_id = ? AND kind = ? ORDER BY date, id', [partyId, kind]);
+async function buildSide(db: DatabaseService, partyId: number, kind: 'P' | 'S', rules: SettingsRules): Promise<SideResult> {
+  const invoices = await db.all<InvoiceRow>('SELECT * FROM invoices WHERE party_id = ? AND kind = ? ORDER BY date, id', [partyId, kind]);
   const typeLabel = kind === 'P' ? 'Purchase' : 'Sale';
   let amount = 0, whSum = 0, balanceSum = 0, seq = 0;
   const raw: { date: string; charge: number; payment: number; invoice_id: number; ref: string; detail: string; seq: number }[] = [];
   for (const inv of invoices) {
-    const computed = computeInvoice(db, inv, rules);
+    const computed = await computeInvoice(db, inv, rules);
     amount += computed.grand_total;
     whSum += computed.wh.expected;
     balanceSum += computed.balance;
@@ -91,10 +91,10 @@ function buildSide(db: DatabaseService, partyId: number, kind: 'P' | 'S', rules:
 }
 
 /** Lightweight per-party/kind amount+count, used by the parties list row (`purchased`/`sold`). */
-export function invoiceTotals(db: DatabaseService, partyId: number, kind: 'P' | 'S', rules: SettingsRules): { amount: number; count: number } {
-  const invoices = db.all<InvoiceRow>('SELECT * FROM invoices WHERE party_id = ? AND kind = ?', [partyId, kind]);
+export async function invoiceTotals(db: DatabaseService, partyId: number, kind: 'P' | 'S', rules: SettingsRules): Promise<{ amount: number; count: number }> {
+  const invoices = await db.all<InvoiceRow>('SELECT * FROM invoices WHERE party_id = ? AND kind = ?', [partyId, kind]);
   let amount = 0;
-  for (const inv of invoices) amount += computeInvoice(db, inv, rules).grand_total;
+  for (const inv of invoices) amount += (await computeInvoice(db, inv, rules)).grand_total;
   return { amount: round2(amount), count: invoices.length };
 }
 
@@ -105,12 +105,12 @@ export interface PartyStatement {
   sales: LedgerRow[];
 }
 
-export function getPartyStatement(db: DatabaseService, partyId: number): PartyStatement | undefined {
-  const party = db.get<any>('SELECT * FROM parties WHERE id = ?', [partyId]);
+export async function getPartyStatement(db: DatabaseService, partyId: number): Promise<PartyStatement | undefined> {
+  const party = await db.get<any>('SELECT * FROM parties WHERE id = ?', [partyId]);
   if (!party) return undefined;
-  const rules = loadRules(db);
-  const p = buildSide(db, partyId, 'P', rules);
-  const s = buildSide(db, partyId, 'S', rules);
+  const rules = await loadRules(db);
+  const p = await buildSide(db, partyId, 'P', rules);
+  const s = await buildSide(db, partyId, 'S', rules);
   return {
     party: { name: party.name, tin: party.tin, mrc1: party.mrc1, mrc2: party.mrc2, mrc3: party.mrc3, phone: party.phone, email: party.email, address: party.address, type: party.type },
     totals: {
@@ -138,10 +138,10 @@ export interface InvoiceFull {
 }
 
 /** Full invoice detail shape (superset of the list row) — shared by portal invoice detail/list. */
-export function getInvoiceFull(db: DatabaseService, id: number, rules: SettingsRules): InvoiceFull | undefined {
-  const inv = db.get<InvoiceRow>('SELECT * FROM invoices WHERE id = ?', [id]);
+export async function getInvoiceFull(db: DatabaseService, id: number, rules: SettingsRules): Promise<InvoiceFull | undefined> {
+  const inv = await db.get<InvoiceRow>('SELECT * FROM invoices WHERE id = ?', [id]);
   if (!inv) return undefined;
-  const computed = computeInvoice(db, inv, rules);
+  const computed = await computeInvoice(db, inv, rules);
   return {
     id: inv.id, kind: inv.kind, invoice_no: inv.invoice_no, date: inv.date, fy: inv.fy, fy_month: inv.fy_month,
     party_name: inv.party_name, party_tin: inv.party_tin, party_id: inv.party_id,

@@ -39,15 +39,15 @@ interface LineRow extends RawLine {
 export class WithholdingService {
   constructor(private readonly db: DatabaseService) {}
 
-  private getRules(): Rules {
-    const row = this.db.get<Rules>(
+  private async getRules(): Promise<Rules> {
+    const row = await this.db.get<Rules>(
       'SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold FROM settings WHERE id = 1',
     );
     return row || DEFAULT_RULES;
   }
 
-  list(kind: Kind, fy?: string, month?: string) {
-    const rules = this.getRules();
+  async list(kind: Kind, fy?: string, month?: string) {
+    const rules = await this.getRules();
     const where: string[] = ['kind = ?'];
     const params: unknown[] = [kind];
     if (fy !== undefined && fy !== '') {
@@ -58,7 +58,7 @@ export class WithholdingService {
       where.push('fy_month = ?');
       params.push(Number(month));
     }
-    const invoices = this.db.all<InvoiceRow>(
+    const invoices = await this.db.all<InvoiceRow>(
       `SELECT id, invoice_no, date, fy, fy_month, party_name, party_tin, vat_category,
               wh_receipt_type, wh_receipt_no, wh_receipt_date, wh_paid
        FROM invoices WHERE ${where.join(' AND ')} ORDER BY date, id`,
@@ -68,7 +68,7 @@ export class WithholdingService {
 
     const ids = invoices.map((i) => i.id);
     const placeholders = ids.map(() => '?').join(',');
-    const lineRows = this.db.all<LineRow>(
+    const lineRows = await this.db.all<LineRow>(
       `SELECT * FROM invoice_lines WHERE invoice_id IN (${placeholders})`,
       ids,
     );

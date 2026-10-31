@@ -18,8 +18,8 @@ export class PurchasesController {
 
   @Get('next-number')
   @RequirePermission('purchases', 'view')
-  nextNumber() {
-    return { number: this.invoices.nextNumber('P') };
+  async nextNumber() {
+    return { number: await this.invoices.nextNumber('P') };
   }
 
   @Get(':id')
@@ -36,8 +36,8 @@ export class PurchasesController {
 
   @Post('report-status')
   @RequirePermission('purchases', 'edit')
-  reportStatus(@Body() body: { ids: number[]; status: string }, @CurrentUser() user: AuthUser) {
-    this.invoices.bulkReportStatus('P', body.ids, body.status, user);
+  async reportStatus(@Body() body: { ids: number[]; status: string }, @CurrentUser() user: AuthUser) {
+    await this.invoices.bulkReportStatus('P', body.ids, body.status, user);
     return { ok: true };
   }
 
@@ -63,6 +63,6 @@ export class PurchasesController {
   @HttpCode(204)
   @RequirePermission('purchases', 'delete')
   remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    this.invoices.remove('P', Number(id), user);
+    return this.invoices.remove('P', Number(id), user);
   }
 }

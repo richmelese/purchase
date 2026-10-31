@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { DatabaseService } from '../../db/database.service';
+import { DatabaseService, SQL_NOW } from '../../db/database.service';
+import type { Executor } from '../../db/database.service';
 import {
   DEFAULT_RULES, RawLine, computeLine, computeTotals, computeWithholding, receiptNumberError, round2,
 } from '../../common/calc';
@@ -85,18 +86,18 @@ const nounFor = (kind: Kind) => (kind === 'P' ? 'purchase' : 'sale');
 export class InvoicesService {
   constructor(private readonly db: DatabaseService) {}
 
-  private getRules(): Rules {
-    const row = this.db.get<Rules>(
+  private async getRules(): Promise<Rules> {
+    const row = await this.db.get<Rules>(
       'SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold FROM settings WHERE id = 1',
     );
     return row || DEFAULT_RULES;
   }
 
-  private fetchLinesByInvoiceIds(ids: number[]): Record<number, LineRowRaw[]> {
+  private async fetchLinesByInvoiceIds(ids: number[]): Promise<Record<number, LineRowRaw[]>> {
     const map: Record<number, LineRowRaw[]> = {};
     if (!ids.length) return map;
     const placeholders = ids.map(() => '?').join(',');
-    const rows = this.db.all<LineRowRaw>(
+    const rows = await this.db.all<LineRowRaw>(
       `SELECT * FROM invoice_lines WHERE invoice_id IN (${placeholders}) ORDER BY invoice_id, line_no`,
       ids,
     );
@@ -104,11 +105,11 @@ export class InvoicesService {
     return map;
   }
 
-  private fetchPaidByInvoiceIds(ids: number[]): Record<number, number> {
+  private async fetchPaidByInvoiceIds(ids: number[]): Promise<Record<number, number>> {
     const map: Record<number, number> = {};
     if (!ids.length) return map;
     const placeholders = ids.map(() => '?').join(',');
-    const rows = this.db.all<{ invoice_id: number; total: number }>(
+    const rows = await this.db.all<{ invoice_id: number; total: number }>(
       `SELECT invoice_id, SUM(amount) as total FROM payments WHERE invoice_id IN (${placeholders}) GROUP BY invoice_id`,
       ids,
     );
@@ -150,8 +151,8 @@ export class InvoicesService {
     };
   }
 
-  list(kind: Kind, query: ListQuery) {
-    const rules = this.getRules();
+  async list(kind: Kind, query: ListQuery) {
+    const rules = await this.getRules();
     const where: string[] = ['kind = ?'];
     const params: unknown[] = [kind];
     if (query.fy) {
@@ -177,14 +178,14 @@ export class InvoicesService {
       );
       params.push(like, like, like, like);
     }
-    const invoices = this.db.all<InvoiceRowRaw>(
+    const invoices = await this.db.all<InvoiceRowRaw>(
       `SELECT * FROM invoices WHERE ${where.join(' AND ')} ORDER BY date DESC, id DESC`,
       params,
     );
     if (!invoices.length) return [];
     const ids = invoices.map((i) => i.id);
-    const linesByInvoice = this.fetchLinesByInvoiceIds(ids);
-    const paidByInvoice = this.fetchPaidByInvoiceIds(ids);
+    const linesByInvoice = await this.fetchLinesByInvoiceIds(ids);
+    const paidByInvoice = await this.fetchPaidByInvoiceIds(ids);
     return invoices.map((inv) => {
       const row = this.toListRow(inv, linesByInvoice[inv.id] || [], paidByInvoice[inv.id] || 0, rules);
       const { _totals, _amount_due, _amount_paid, ...rest } = row;
@@ -192,8 +193,8 @@ export class InvoicesService {
     });
   }
 
-  nextNumber(kind: Kind): string {
-    const rows = this.db.all<{ invoice_no: string }>('SELECT invoice_no FROM invoices WHERE kind = ?', [kind]);
+  async nextNumber(kind: Kind): Promise<string> {
+    const rows = await this.db.all<{ invoice_no: string }>('SELECT invoice_no FROM invoices WHERE kind = ?', [kind]);
     let max = 0;
     for (const r of rows) {
       const m = /^[A-Za-z](\d+)$/.exec(r.invoice_no || '');
@@ -202,17 +203,17 @@ export class InvoicesService {
     return `${kind}${String(max + 1).padStart(4, '0')}`;
   }
 
-  private getInvoiceOrThrow(kind: Kind, id: number): InvoiceRowRaw {
-    const inv = this.db.get<InvoiceRowRaw>('SELECT * FROM invoices WHERE id = ?', [id]);
+  private async getInvoiceOrThrow(kind: Kind, id: number): Promise<InvoiceRowRaw> {
+    const inv = await this.db.get<InvoiceRowRaw>('SELECT * FROM invoices WHERE id = ?', [id]);
     if (!inv || inv.kind !== kind) throw new NotFoundException('Invoice not found');
     return inv;
   }
 
-  getDetail(kind: Kind, id: number) {
-    const inv = this.getInvoiceOrThrow(kind, id);
-    const rules = this.getRules();
-    const lines = this.db.all<LineRowRaw>('SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY line_no', [id]);
-    const payments = this.db.all<PaymentRowRaw>('SELECT * FROM payments WHERE invoice_id = ? ORDER BY date, id', [id]);
+  async getDetail(kind: Kind, id: number) {
+    const inv = await this.getInvoiceOrThrow(kind, id);
+    const rules = await this.getRules();
+    const lines = await this.db.all<LineRowRaw>('SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY line_no', [id]);
+    const payments = await this.db.all<PaymentRowRaw>('SELECT * FROM payments WHERE invoice_id = ? ORDER BY date, id', [id]);
     return this.toDetail(inv, lines, payments, rules);
   }
 
@@ -302,27 +303,30 @@ export class InvoicesService {
   }
 
   /** Resolves party_id by TIN, auto-registering / upgrading the party as described in the module spec. */
-  private resolvePartyId(kind: Kind, tin: unknown, name: unknown): number | null {
+  private async resolvePartyId(kind: Kind, tin: unknown, name: unknown): Promise<number | null> {
     const tinStr = tin == null ? '' : String(tin).trim();
     if (!tinStr) return null;
     const wantType = kind === 'P' ? 'Supplier' : 'Customer';
     const otherType = kind === 'P' ? 'Customer' : 'Supplier';
-    const rows = this.db.all<{ id: number; type: string }>('SELECT id, type FROM parties WHERE tin = ?', [tinStr]);
+    const rows = await this.db.all<{ id: number; type: string }>('SELECT id, type FROM parties WHERE tin = ?', [tinStr]);
     const match = rows.find((r) => r.type === wantType || r.type === 'Both');
     if (match) return match.id;
     const other = rows.find((r) => r.type === otherType);
     if (other) {
-      this.db.run("UPDATE parties SET type = 'Both', updated_at = datetime('now') WHERE id = ?", [other.id]);
+      await this.db.run(`UPDATE parties SET type = 'Both', updated_at = ${SQL_NOW} WHERE id = ?`, [other.id]);
       return other.id;
     }
     const nameStr = name == null || String(name).trim() === '' ? tinStr : String(name).trim();
-    const result = this.db.run('INSERT INTO parties (tin, name, type) VALUES (?, ?, ?)', [tinStr, nameStr, wantType]);
-    return Number(result.lastInsertRowid);
+    const row = await this.db.get<{ id: number }>(
+      'INSERT INTO parties (tin, name, type) VALUES (?, ?, ?) RETURNING id',
+      [tinStr, nameStr, wantType],
+    );
+    return row!.id;
   }
 
-  private insertLines(invoiceId: number, lines: any[]) {
-    lines.forEach((line, idx) => {
-      this.db.run(
+  private async insertLines(trx: Executor, invoiceId: number, lines: any[]) {
+    for (const [idx, line] of lines.entries()) {
+      await trx.run(
         `INSERT INTO invoice_lines (invoice_id, line_no, product_code, description, unit, tx_type, transaction_type, qty, unit_price, excise_rate, vatable_service_fee, non_vatable_fee)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
@@ -340,19 +344,19 @@ export class InvoicesService {
           Number(line.non_vatable_fee) || 0,
         ],
       );
-    });
+    }
   }
 
-  create(kind: Kind, body: any, user: AuthUser) {
+  async create(kind: Kind, body: any, user: AuthUser) {
     this.validate(body);
     const period = taxPeriod(body.date);
     if (!period) throw new BadRequestException({ error: 'Please check the form', fields: { date: 'Invalid date' } });
-    const partyId = this.resolvePartyId(kind, body.party_tin, body.party_name);
+    const partyId = await this.resolvePartyId(kind, body.party_tin, body.party_name);
 
-    const newId = this.db.transaction(() => {
-      const result = this.db.run(
+    const newId = await this.db.transaction(async (trx) => {
+      const row = await trx.get<{ id: number }>(
         `INSERT INTO invoices (kind, invoice_no, payment_type, vat_category, calendar_type, party_tin, party_name, party_id, date, fy, fy_month, receipt_type, mrc_number, vat_receipt_no, report_status, notes, created_by, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
         [
           kind,
           body.invoice_no,
@@ -374,26 +378,26 @@ export class InvoicesService {
           user.id,
         ],
       );
-      const invoiceId = Number(result.lastInsertRowid);
-      this.insertLines(invoiceId, body.lines);
+      const invoiceId = row!.id;
+      await this.insertLines(trx, invoiceId, body.lines);
       return invoiceId;
     });
 
-    logActivity(this.db, user, 'create', resourceFor(kind), newId, `created ${nounFor(kind)} ${body.invoice_no}`);
+    await logActivity(this.db, user, 'create', resourceFor(kind), newId, `created ${nounFor(kind)} ${body.invoice_no}`);
     return this.getDetail(kind, newId);
   }
 
-  update(kind: Kind, id: number, body: any, user: AuthUser) {
-    const existing = this.getInvoiceOrThrow(kind, id);
+  async update(kind: Kind, id: number, body: any, user: AuthUser) {
+    const existing = await this.getInvoiceOrThrow(kind, id);
     if (!canCompany(user, existing.party_id, 'edit')) throw new ForbiddenException('No access to this party');
     this.validate(body);
     const period = taxPeriod(body.date);
     if (!period) throw new BadRequestException({ error: 'Please check the form', fields: { date: 'Invalid date' } });
-    const partyId = this.resolvePartyId(kind, body.party_tin, body.party_name);
+    const partyId = await this.resolvePartyId(kind, body.party_tin, body.party_name);
 
-    this.db.transaction(() => {
-      this.db.run(
-        `UPDATE invoices SET invoice_no=?, payment_type=?, vat_category=?, calendar_type=?, party_tin=?, party_name=?, party_id=?, date=?, fy=?, fy_month=?, receipt_type=?, mrc_number=?, vat_receipt_no=?, report_status=?, notes=?, updated_by=?, updated_at=datetime('now') WHERE id=?`,
+    await this.db.transaction(async (trx) => {
+      await trx.run(
+        `UPDATE invoices SET invoice_no=?, payment_type=?, vat_category=?, calendar_type=?, party_tin=?, party_name=?, party_id=?, date=?, fy=?, fy_month=?, receipt_type=?, mrc_number=?, vat_receipt_no=?, report_status=?, notes=?, updated_by=?, updated_at=${SQL_NOW} WHERE id=?`,
         [
           body.invoice_no,
           body.payment_type,
@@ -414,61 +418,61 @@ export class InvoicesService {
           id,
         ],
       );
-      this.db.run('DELETE FROM invoice_lines WHERE invoice_id = ?', [id]);
-      this.insertLines(id, body.lines);
+      await trx.run('DELETE FROM invoice_lines WHERE invoice_id = ?', [id]);
+      await this.insertLines(trx, id, body.lines);
     });
 
-    logActivity(this.db, user, 'update', resourceFor(kind), id, `updated ${nounFor(kind)} ${body.invoice_no}`);
+    await logActivity(this.db, user, 'update', resourceFor(kind), id, `updated ${nounFor(kind)} ${body.invoice_no}`);
     return this.getDetail(kind, id);
   }
 
-  remove(kind: Kind, id: number, user: AuthUser) {
-    const existing = this.getInvoiceOrThrow(kind, id);
+  async remove(kind: Kind, id: number, user: AuthUser) {
+    const existing = await this.getInvoiceOrThrow(kind, id);
     if (!canCompany(user, existing.party_id, 'delete')) throw new ForbiddenException('No access to this party');
-    this.db.run('DELETE FROM invoices WHERE id = ?', [id]);
-    logActivity(this.db, user, 'delete', resourceFor(kind), id, `deleted ${nounFor(kind)} ${existing.invoice_no}`);
+    await this.db.run('DELETE FROM invoices WHERE id = ?', [id]);
+    await logActivity(this.db, user, 'delete', resourceFor(kind), id, `deleted ${nounFor(kind)} ${existing.invoice_no}`);
   }
 
-  bulkReportStatus(kind: Kind, ids: number[], status: string, user: AuthUser) {
+  async bulkReportStatus(kind: Kind, ids: number[], status: string, user: AuthUser) {
     if (!Array.isArray(ids) || !ids.length) return;
     const placeholders = ids.map(() => '?').join(',');
-    this.db.run(
-      `UPDATE invoices SET report_status = ?, updated_by = ?, updated_at = datetime('now') WHERE kind = ? AND id IN (${placeholders})`,
+    await this.db.run(
+      `UPDATE invoices SET report_status = ?, updated_by = ?, updated_at = ${SQL_NOW} WHERE kind = ? AND id IN (${placeholders})`,
       [status, user.id, kind, ...ids],
     );
-    logActivity(this.db, user, 'update', resourceFor(kind), null, `marked ${ids.length} ${nounFor(kind)}(s) as ${status}`);
+    await logActivity(this.db, user, 'update', resourceFor(kind), null, `marked ${ids.length} ${nounFor(kind)}(s) as ${status}`);
   }
 
-  updateWithholding(kind: Kind, id: number, body: any, user: AuthUser) {
-    const existing = this.getInvoiceOrThrow(kind, id);
+  async updateWithholding(kind: Kind, id: number, body: any, user: AuthUser) {
+    const existing = await this.getInvoiceOrThrow(kind, id);
     if (!canCompany(user, existing.party_id, 'edit')) throw new ForbiddenException('No access to this party');
-    this.db.run(
-      `UPDATE invoices SET wh_receipt_type=?, wh_receipt_no=?, wh_receipt_date=?, wh_paid=?, updated_by=?, updated_at=datetime('now') WHERE id=?`,
+    await this.db.run(
+      `UPDATE invoices SET wh_receipt_type=?, wh_receipt_no=?, wh_receipt_date=?, wh_paid=?, updated_by=?, updated_at=${SQL_NOW} WHERE id=?`,
       [body.wh_receipt_type ?? null, body.wh_receipt_no ?? null, body.wh_receipt_date ?? null, Number(body.wh_paid) || 0, user.id, id],
     );
-    logActivity(this.db, user, 'update', resourceFor(kind), id, `updated withholding on ${nounFor(kind)} ${existing.invoice_no}`);
+    await logActivity(this.db, user, 'update', resourceFor(kind), id, `updated withholding on ${nounFor(kind)} ${existing.invoice_no}`);
     return this.getDetail(kind, id);
   }
 
-  addPayment(kind: Kind, id: number, body: any, user: AuthUser) {
-    const existing = this.getInvoiceOrThrow(kind, id);
+  async addPayment(kind: Kind, id: number, body: any, user: AuthUser) {
+    const existing = await this.getInvoiceOrThrow(kind, id);
     if (!canCompany(user, existing.party_id, 'edit')) throw new ForbiddenException('No access to this party');
     const amount = Number(body.amount);
     if (!body.date) throw new BadRequestException({ error: 'Please check the form', fields: { date: 'Required' } });
     if (!amount || amount <= 0) throw new BadRequestException({ error: 'Please check the form', fields: { amount: 'Required' } });
-    this.db.run(
+    await this.db.run(
       'INSERT INTO payments (invoice_id, date, amount, method, reference) VALUES (?, ?, ?, ?, ?)',
       [id, body.date, amount, body.method || null, body.reference || null],
     );
-    logActivity(this.db, user, 'update', resourceFor(kind), id, `recorded a ${amount} payment on ${existing.invoice_no}`);
+    await logActivity(this.db, user, 'update', resourceFor(kind), id, `recorded a ${amount} payment on ${existing.invoice_no}`);
     return this.getDetail(kind, id);
   }
 
   /** Shared `DELETE /api/payments/:id` route — determines kind/party from the payment's invoice. */
-  removePaymentShared(paymentId: number, user: AuthUser) {
-    const payment = this.db.get<PaymentRowRaw>('SELECT * FROM payments WHERE id = ?', [paymentId]);
+  async removePaymentShared(paymentId: number, user: AuthUser) {
+    const payment = await this.db.get<PaymentRowRaw>('SELECT * FROM payments WHERE id = ?', [paymentId]);
     if (!payment) throw new NotFoundException('Payment not found');
-    const invoice = this.db.get<InvoiceRowRaw>('SELECT * FROM invoices WHERE id = ?', [payment.invoice_id]);
+    const invoice = await this.db.get<InvoiceRowRaw>('SELECT * FROM invoices WHERE id = ?', [payment.invoice_id]);
     if (!invoice) throw new NotFoundException('Payment not found');
 
     const resource = resourceFor(invoice.kind);
@@ -478,8 +482,8 @@ export class InvoicesService {
     }
     if (!canCompany(user, invoice.party_id, 'edit')) throw new ForbiddenException('No access to this party');
 
-    this.db.run('DELETE FROM payments WHERE id = ?', [paymentId]);
-    logActivity(this.db, user, 'delete', 'payments', paymentId, `deleted a ${payment.amount} payment on ${nounFor(invoice.kind)} ${invoice.invoice_no}`);
+    await this.db.run('DELETE FROM payments WHERE id = ?', [paymentId]);
+    await logActivity(this.db, user, 'delete', 'payments', paymentId, `deleted a ${payment.amount} payment on ${nounFor(invoice.kind)} ${invoice.invoice_no}`);
     return this.getDetail(invoice.kind, invoice.id);
   }
 }

@@ -77,8 +77,8 @@ export class ReconciliationService {
 
   // ---------- shared helpers ----------
 
-  private getRules() {
-    const s = this.db.get<any>('SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold FROM settings WHERE id = 1');
+  private async getRules() {
+    const s = await this.db.get<any>('SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold FROM settings WHERE id = 1');
     return {
       vat_rate: s?.vat_rate ?? DEFAULT_RULES.vat_rate,
       wh_rate: s?.wh_rate ?? DEFAULT_RULES.wh_rate,
@@ -88,8 +88,8 @@ export class ReconciliationService {
   }
 
   /** total_before_vat / vat_amount / grand_total / withholding for one invoice, computed from its lines. */
-  private invoiceAmounts(invoice: InvoiceRow, rules: ReturnType<ReconciliationService['getRules']>) {
-    const lines = this.db.all<RawLine>('SELECT * FROM invoice_lines WHERE invoice_id = ?', [invoice.id]);
+  private async invoiceAmounts(invoice: InvoiceRow, rules: Awaited<ReturnType<ReconciliationService['getRules']>>) {
+    const lines = await this.db.all<RawLine>('SELECT * FROM invoice_lines WHERE invoice_id = ?', [invoice.id]);
     const computed = lines.map((l) => computeLine(l, rules));
     const totals = computeTotals(computed);
     const wh = computeWithholding(
@@ -105,15 +105,15 @@ export class ReconciliationService {
     return kind === 'P' ? round2(grand_total - withholding) : round2(grand_total + withholding);
   }
 
-  private findInvoice(kind: Kind, invoiceNo: string | null | undefined): InvoiceRow | undefined {
+  private async findInvoice(kind: Kind, invoiceNo: string | null | undefined): Promise<InvoiceRow | undefined> {
     if (!invoiceNo) return undefined;
     return this.db.get<InvoiceRow>('SELECT * FROM invoices WHERE kind = ? AND invoice_no = ?', [kind, invoiceNo]);
   }
 
   /** Per-invoice reconciliation rows (all invoices of `kind`, unfiltered) — shared by the list and summary routes. */
-  private reconRows(kind: Kind, rules: ReturnType<ReconciliationService['getRules']>): ReconRow[] {
-    const invoices = this.db.all<InvoiceRow>('SELECT * FROM invoices WHERE kind = ? ORDER BY date, id', [kind]);
-    const txs = this.db.all<BankTxRow>(
+  private async reconRows(kind: Kind, rules: Awaited<ReturnType<ReconciliationService['getRules']>>): Promise<ReconRow[]> {
+    const invoices = await this.db.all<InvoiceRow>('SELECT * FROM invoices WHERE kind = ? ORDER BY date, id', [kind]);
+    const txs = await this.db.all<BankTxRow>(
       'SELECT bank_code, purchase_code_1, purchase_code_2, debit, sales_code_1, sales_code_2, credit FROM bank_transactions',
     );
     const matchMap = new Map<string, { amount: number; codes: string[] }>();
@@ -128,8 +128,10 @@ export class ReconciliationService {
         matchMap.set(code, entry);
       }
     }
-    return invoices.map((inv, idx) => {
-      const amounts = this.invoiceAmounts(inv, rules);
+    const rows: ReconRow[] = [];
+    for (let idx = 0; idx < invoices.length; idx++) {
+      const inv = invoices[idx];
+      const amounts = await this.invoiceAmounts(inv, rules);
       const expected_payment = this.expectedPayment(kind, amounts.grand_total, amounts.withholding);
       const match = matchMap.get(inv.invoice_no);
       const amount_in_bank = round2(match?.amount || 0);
@@ -139,7 +141,7 @@ export class ReconciliationService {
       else if (Math.abs(difference) < 0.01) status = 'Reconciled';
       else if (amount_in_bank > expected_payment) status = kind === 'P' ? 'Overpaid' : 'Overcollected';
       else status = 'Partial';
-      return {
+      rows.push({
         id: inv.id,
         no: idx + 1,
         invoice_no: inv.invoice_no,
@@ -156,13 +158,14 @@ export class ReconciliationService {
         amount_in_bank,
         difference,
         status,
-      };
-    });
+      });
+    }
+    return rows;
   }
 
-  private listRecon(kind: Kind, status: string, search: string): ReconRow[] {
-    const rules = this.getRules();
-    let rows = this.reconRows(kind, rules);
+  private async listRecon(kind: Kind, status: string, search: string): Promise<ReconRow[]> {
+    const rules = await this.getRules();
+    let rows = await this.reconRows(kind, rules);
     const statusNorm = (status || 'all').toLowerCase();
     if (statusNorm && statusNorm !== 'all') {
       rows = rows.filter((r) => r.status.toLowerCase() === statusNorm);
@@ -176,24 +179,24 @@ export class ReconciliationService {
     return rows.map((r, idx) => ({ ...r, no: idx + 1 }));
   }
 
-  getPurchases(status: string, search: string) {
+  async getPurchases(status: string, search: string) {
     return this.listRecon('P', status, search);
   }
 
-  getSales(status: string, search: string) {
+  async getSales(status: string, search: string) {
     return this.listRecon('S', status, search);
   }
 
   // ---------- summary ----------
 
-  getSummary() {
-    const rules = this.getRules();
-    const purchaseRows = this.reconRows('P', rules);
-    const salesRows = this.reconRows('S', rules);
-    const bankTotals = this.db.get<{ td: number; tc: number }>(
+  async getSummary() {
+    const rules = await this.getRules();
+    const purchaseRows = await this.reconRows('P', rules);
+    const salesRows = await this.reconRows('S', rules);
+    const bankTotals = await this.db.get<{ td: number; tc: number }>(
       'SELECT COALESCE(SUM(debit),0) AS td, COALESCE(SUM(credit),0) AS tc FROM bank_transactions',
     );
-    const accounts = this.db.all<{ opening_balance: number; td: number; tc: number }>(
+    const accounts = await this.db.all<{ opening_balance: number; td: number; tc: number }>(
       `SELECT opening_balance,
               (SELECT COALESCE(SUM(debit),0) FROM bank_transactions WHERE bank_account_id = bank_accounts.id) AS td,
               (SELECT COALESCE(SUM(credit),0) FROM bank_transactions WHERE bank_account_id = bank_accounts.id) AS tc
@@ -231,13 +234,17 @@ export class ReconciliationService {
 
   // ---------- bank accounts ----------
 
-  getBanks() {
-    const rows = this.db.all<BankAccountRow>('SELECT * FROM bank_accounts ORDER BY account_no');
-    return rows.map((r) => this.hydrateBank(r));
+  async getBanks() {
+    const rows = await this.db.all<BankAccountRow>('SELECT * FROM bank_accounts ORDER BY account_no');
+    const result: Awaited<ReturnType<ReconciliationService['hydrateBank']>>[] = [];
+    for (const r of rows) {
+      result.push(await this.hydrateBank(r));
+    }
+    return result;
   }
 
-  private hydrateBank(r: BankAccountRow) {
-    const agg = this.db.get<{ td: number; tc: number; cnt: number }>(
+  private async hydrateBank(r: BankAccountRow) {
+    const agg = await this.db.get<{ td: number; tc: number; cnt: number }>(
       'SELECT COALESCE(SUM(debit),0) AS td, COALESCE(SUM(credit),0) AS tc, COUNT(*) AS cnt FROM bank_transactions WHERE bank_account_id = ?',
       [r.id],
     );
@@ -269,46 +276,46 @@ export class ReconciliationService {
     return accountNo;
   }
 
-  createBank(user: AuthUser | undefined, body: any) {
+  async createBank(user: AuthUser | undefined, body: any) {
     const accountNo = this.validateBankBody(body);
-    const dupe = this.db.get('SELECT id FROM bank_accounts WHERE account_no = ?', [accountNo]);
+    const dupe = await this.db.get('SELECT id FROM bank_accounts WHERE account_no = ?', [accountNo]);
     if (dupe) throw new BadRequestException({ error: 'Please check the form', fields: { account_no: 'Already in use' } });
-    const result = this.db.run(
-      'INSERT INTO bank_accounts (account_no, bank_name, account_name, account_number, currency, opening_balance, notes) VALUES (?,?,?,?,?,?,?)',
+    const row = await this.db.get<{ id: number }>(
+      'INSERT INTO bank_accounts (account_no, bank_name, account_name, account_number, currency, opening_balance, notes) VALUES (?,?,?,?,?,?,?) RETURNING id',
       [accountNo, body.bank_name || null, body.account_name || null, body.account_number || null, body.currency || 'ETB', Number(body.opening_balance) || 0, body.notes || null],
     );
-    const id = Number(result.lastInsertRowid);
-    logActivity(this.db, user, 'create', 'reconciliation', id, `created bank account #${accountNo} (${body.bank_name || ''})`);
-    return this.hydrateBank(this.db.get<BankAccountRow>('SELECT * FROM bank_accounts WHERE id = ?', [id])!);
+    const id = row!.id;
+    await logActivity(this.db, user, 'create', 'reconciliation', id, `created bank account #${accountNo} (${body.bank_name || ''})`);
+    return this.hydrateBank((await this.db.get<BankAccountRow>('SELECT * FROM bank_accounts WHERE id = ?', [id]))!);
   }
 
-  updateBank(user: AuthUser | undefined, id: number, body: any) {
-    const existing = this.db.get<BankAccountRow>('SELECT * FROM bank_accounts WHERE id = ?', [id]);
+  async updateBank(user: AuthUser | undefined, id: number, body: any) {
+    const existing = await this.db.get<BankAccountRow>('SELECT * FROM bank_accounts WHERE id = ?', [id]);
     if (!existing) throw new NotFoundException('Bank account not found');
     const accountNo = this.validateBankBody(body);
-    const dupe = this.db.get('SELECT id FROM bank_accounts WHERE account_no = ? AND id != ?', [accountNo, id]);
+    const dupe = await this.db.get('SELECT id FROM bank_accounts WHERE account_no = ? AND id != ?', [accountNo, id]);
     if (dupe) throw new BadRequestException({ error: 'Please check the form', fields: { account_no: 'Already in use' } });
-    this.db.run(
+    await this.db.run(
       'UPDATE bank_accounts SET account_no = ?, bank_name = ?, account_name = ?, account_number = ?, currency = ?, opening_balance = ?, notes = ? WHERE id = ?',
       [accountNo, body.bank_name || null, body.account_name || null, body.account_number || null, body.currency || 'ETB', Number(body.opening_balance) || 0, body.notes || null, id],
     );
-    logActivity(this.db, user, 'update', 'reconciliation', id, `updated bank account #${accountNo} (${body.bank_name || ''})`);
-    return this.hydrateBank(this.db.get<BankAccountRow>('SELECT * FROM bank_accounts WHERE id = ?', [id])!);
+    await logActivity(this.db, user, 'update', 'reconciliation', id, `updated bank account #${accountNo} (${body.bank_name || ''})`);
+    return this.hydrateBank((await this.db.get<BankAccountRow>('SELECT * FROM bank_accounts WHERE id = ?', [id]))!);
   }
 
   // ---------- transactions ----------
 
-  private hydrateTransaction(r: BankTxRow, rules: ReturnType<ReconciliationService['getRules']>) {
-    const pInv = this.findInvoice('P', r.purchase_code_1) || this.findInvoice('P', r.purchase_code_2);
-    const sInv = this.findInvoice('S', r.sales_code_1) || this.findInvoice('S', r.sales_code_2);
+  private async hydrateTransaction(r: BankTxRow, rules: Awaited<ReturnType<ReconciliationService['getRules']>>) {
+    const pInv = (await this.findInvoice('P', r.purchase_code_1)) || (await this.findInvoice('P', r.purchase_code_2));
+    const sInv = (await this.findInvoice('S', r.sales_code_1)) || (await this.findInvoice('S', r.sales_code_2));
     let purchase_expected = 0;
     if (pInv) {
-      const a = this.invoiceAmounts(pInv, rules);
+      const a = await this.invoiceAmounts(pInv, rules);
       purchase_expected = this.expectedPayment('P', a.grand_total, a.withholding);
     }
     let sales_expected = 0;
     if (sInv) {
-      const a = this.invoiceAmounts(sInv, rules);
+      const a = await this.invoiceAmounts(sInv, rules);
       sales_expected = this.expectedPayment('S', a.grand_total, a.withholding);
     }
     return {
@@ -332,13 +339,13 @@ export class ReconciliationService {
     };
   }
 
-  getTransactions(bankAccountId: number | undefined, search: string) {
-    const rules = this.getRules();
+  async getTransactions(bankAccountId: number | undefined, search: string) {
+    const rules = await this.getRules();
     let rows: BankTxRow[];
     if (bankAccountId) {
-      rows = this.db.all<BankTxRow>('SELECT * FROM bank_transactions WHERE bank_account_id = ? ORDER BY row_no, id', [bankAccountId]);
+      rows = await this.db.all<BankTxRow>('SELECT * FROM bank_transactions WHERE bank_account_id = ? ORDER BY row_no, id', [bankAccountId]);
     } else {
-      rows = this.db.all<BankTxRow>('SELECT * FROM bank_transactions ORDER BY bank_account_id, row_no, id');
+      rows = await this.db.all<BankTxRow>('SELECT * FROM bank_transactions ORDER BY bank_account_id, row_no, id');
     }
     if (search) {
       const q = search.toLowerCase();
@@ -348,42 +355,47 @@ export class ReconciliationService {
         ),
       );
     }
-    return rows.map((r) => this.hydrateTransaction(r, rules));
+    const result: Awaited<ReturnType<ReconciliationService['hydrateTransaction']>>[] = [];
+    for (const r of rows) {
+      result.push(await this.hydrateTransaction(r, rules));
+    }
+    return result;
   }
 
-  private nextBankCode(bankAccountId: number): string {
-    const account = this.db.get<BankAccountRow>('SELECT * FROM bank_accounts WHERE id = ?', [bankAccountId]);
-    const cnt = this.db.get<{ c: number }>('SELECT COUNT(*) AS c FROM bank_transactions WHERE bank_account_id = ?', [bankAccountId]);
+  private async nextBankCode(bankAccountId: number): Promise<string> {
+    const account = await this.db.get<BankAccountRow>('SELECT * FROM bank_accounts WHERE id = ?', [bankAccountId]);
+    const cnt = await this.db.get<{ c: number }>('SELECT COUNT(*) AS c FROM bank_transactions WHERE bank_account_id = ?', [bankAccountId]);
     const seq = (cnt?.c || 0) + 1;
     return `BT-${account?.account_no ?? bankAccountId}-${String(seq).padStart(3, '0')}`;
   }
 
-  createTransaction(user: AuthUser | undefined, body: any) {
+  async createTransaction(user: AuthUser | undefined, body: any) {
     const bankAccountId = Number(body.bank_account_id);
-    const account = this.db.get<BankAccountRow>('SELECT * FROM bank_accounts WHERE id = ?', [bankAccountId]);
+    const account = await this.db.get<BankAccountRow>('SELECT * FROM bank_accounts WHERE id = ?', [bankAccountId]);
     if (!account) throw new BadRequestException({ error: 'Please check the form', fields: { bank_account_id: 'Select a bank account' } });
-    const bankCode = body.bank_code || this.nextBankCode(bankAccountId);
-    const result = this.db.run(
+    const bankCode = body.bank_code || (await this.nextBankCode(bankAccountId));
+    const row = await this.db.get<{ id: number }>(
       `INSERT INTO bank_transactions
         (bank_account_id, row_no, bank_code, value_date, purchase_code_1, purchase_code_2, debit, purchase_remark, sales_code_1, sales_code_2, credit, sales_remark)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id`,
       [
         bankAccountId, body.row_no ?? null, bankCode, body.value_date || null,
         body.purchase_code_1 || null, body.purchase_code_2 || null, Number(body.debit) || 0, body.purchase_remark || null,
         body.sales_code_1 || null, body.sales_code_2 || null, Number(body.credit) || 0, body.sales_remark || null,
       ],
     );
-    const id = Number(result.lastInsertRowid);
-    logActivity(this.db, user, 'create', 'reconciliation', id, `added bank transaction ${bankCode}`);
-    return this.hydrateTransaction(this.db.get<BankTxRow>('SELECT * FROM bank_transactions WHERE id = ?', [id])!, this.getRules());
+    const id = row!.id;
+    await logActivity(this.db, user, 'create', 'reconciliation', id, `added bank transaction ${bankCode}`);
+    const rules = await this.getRules();
+    return this.hydrateTransaction((await this.db.get<BankTxRow>('SELECT * FROM bank_transactions WHERE id = ?', [id]))!, rules);
   }
 
-  updateTransaction(user: AuthUser | undefined, id: number, body: any) {
-    const existing = this.db.get<BankTxRow>('SELECT * FROM bank_transactions WHERE id = ?', [id]);
+  async updateTransaction(user: AuthUser | undefined, id: number, body: any) {
+    const existing = await this.db.get<BankTxRow>('SELECT * FROM bank_transactions WHERE id = ?', [id]);
     if (!existing) throw new NotFoundException('Bank transaction not found');
     const bankAccountId = body.bank_account_id != null ? Number(body.bank_account_id) : existing.bank_account_id;
-    const bankCode = body.bank_code || existing.bank_code || this.nextBankCode(bankAccountId);
-    this.db.run(
+    const bankCode = body.bank_code || existing.bank_code || (await this.nextBankCode(bankAccountId));
+    await this.db.run(
       `UPDATE bank_transactions SET
         bank_account_id = ?, row_no = ?, bank_code = ?, value_date = ?,
         purchase_code_1 = ?, purchase_code_2 = ?, debit = ?, purchase_remark = ?,
@@ -398,35 +410,36 @@ export class ReconciliationService {
         id,
       ],
     );
-    logActivity(this.db, user, 'update', 'reconciliation', id, `updated bank transaction ${bankCode}`);
-    return this.hydrateTransaction(this.db.get<BankTxRow>('SELECT * FROM bank_transactions WHERE id = ?', [id])!, this.getRules());
+    await logActivity(this.db, user, 'update', 'reconciliation', id, `updated bank transaction ${bankCode}`);
+    const rules = await this.getRules();
+    return this.hydrateTransaction((await this.db.get<BankTxRow>('SELECT * FROM bank_transactions WHERE id = ?', [id]))!, rules);
   }
 
-  deleteTransaction(user: AuthUser | undefined, id: number) {
-    const existing = this.db.get<BankTxRow>('SELECT * FROM bank_transactions WHERE id = ?', [id]);
+  async deleteTransaction(user: AuthUser | undefined, id: number) {
+    const existing = await this.db.get<BankTxRow>('SELECT * FROM bank_transactions WHERE id = ?', [id]);
     if (!existing) throw new NotFoundException('Bank transaction not found');
-    this.db.run('DELETE FROM bank_transactions WHERE id = ?', [id]);
-    logActivity(this.db, user, 'delete', 'reconciliation', id, `deleted bank transaction ${existing.bank_code || id}`);
+    await this.db.run('DELETE FROM bank_transactions WHERE id = ?', [id]);
+    await logActivity(this.db, user, 'delete', 'reconciliation', id, `deleted bank transaction ${existing.bank_code || id}`);
   }
 
   // ---------- auto-match ----------
 
-  autoMatch(user: AuthUser | undefined) {
-    const rules = this.getRules();
-    const purchaseRows = this.reconRows('P', rules).filter((r) => r.status === 'Unreconciled');
-    const salesRows = this.reconRows('S', rules).filter((r) => r.status === 'Unreconciled');
+  async autoMatch(user: AuthUser | undefined) {
+    const rules = await this.getRules();
+    const purchaseRows = (await this.reconRows('P', rules)).filter((r) => r.status === 'Unreconciled');
+    const salesRows = (await this.reconRows('S', rules)).filter((r) => r.status === 'Unreconciled');
     const usedP = new Set<string>();
     const usedS = new Set<string>();
     let matched_purchases = 0;
     let matched_sales = 0;
 
-    this.db.transaction(() => {
-      const txs = this.db.all<BankTxRow>('SELECT * FROM bank_transactions');
+    await this.db.transaction(async (trx) => {
+      const txs = await trx.all<BankTxRow>('SELECT * FROM bank_transactions');
       for (const t of txs) {
         if (!t.purchase_code_1 && !t.purchase_code_2 && Number(t.debit) > 0) {
           const m = purchaseRows.find((r) => !usedP.has(r.invoice_no) && Math.abs(r.expected_payment - Number(t.debit)) < 0.01);
           if (m) {
-            this.db.run('UPDATE bank_transactions SET purchase_code_1 = ? WHERE id = ?', [m.invoice_no, t.id]);
+            await trx.run('UPDATE bank_transactions SET purchase_code_1 = ? WHERE id = ?', [m.invoice_no, t.id]);
             usedP.add(m.invoice_no);
             matched_purchases++;
           }
@@ -434,7 +447,7 @@ export class ReconciliationService {
         if (!t.sales_code_1 && !t.sales_code_2 && Number(t.credit) > 0) {
           const m = salesRows.find((r) => !usedS.has(r.invoice_no) && Math.abs(r.expected_payment - Number(t.credit)) < 0.01);
           if (m) {
-            this.db.run('UPDATE bank_transactions SET sales_code_1 = ? WHERE id = ?', [m.invoice_no, t.id]);
+            await trx.run('UPDATE bank_transactions SET sales_code_1 = ? WHERE id = ?', [m.invoice_no, t.id]);
             usedS.add(m.invoice_no);
             matched_sales++;
           }
@@ -443,7 +456,7 @@ export class ReconciliationService {
     });
 
     const total_matched = matched_purchases + matched_sales;
-    logActivity(this.db, user, 'other', 'reconciliation', null, `auto-match linked ${total_matched} transaction(s) (${matched_purchases} purchase, ${matched_sales} sales)`);
+    await logActivity(this.db, user, 'other', 'reconciliation', null, `auto-match linked ${total_matched} transaction(s) (${matched_purchases} purchase, ${matched_sales} sales)`);
     return { total_matched, matched_purchases, matched_sales };
   }
 
@@ -454,9 +467,9 @@ export class ReconciliationService {
     for (let n = 1; n <= 10; n++) {
       const sheet = wb.addWorksheet(`Bank ${String(n).padStart(2, '0')}`);
       sheet.addRow(SHEET_HEADER);
-      const account = this.db.get<BankAccountRow>('SELECT id FROM bank_accounts WHERE account_no = ?', [n]);
+      const account = await this.db.get<BankAccountRow>('SELECT id FROM bank_accounts WHERE account_no = ?', [n]);
       if (account) {
-        const txs = this.db.all<BankTxRow>('SELECT * FROM bank_transactions WHERE bank_account_id = ? ORDER BY row_no, id', [account.id]);
+        const txs = await this.db.all<BankTxRow>('SELECT * FROM bank_transactions WHERE bank_account_id = ? ORDER BY row_no, id', [account.id]);
         for (const t of txs) {
           sheet.addRow([
             t.row_no, t.bank_code, t.value_date, t.purchase_code_1, t.purchase_code_2, t.debit, t.purchase_remark,
@@ -475,20 +488,24 @@ export class ReconciliationService {
     await wb.xlsx.load(buffer as any);
     let total_imported = 0;
 
-    this.db.transaction(() => {
+    await this.db.transaction(async (trx) => {
       for (let n = 1; n <= 10; n++) {
         const sheetName = `Bank ${String(n).padStart(2, '0')}`;
         const sheet = wb.getWorksheet(sheetName);
         if (!sheet) continue;
-        const account = this.db.get<BankAccountRow>('SELECT id FROM bank_accounts WHERE account_no = ?', [n]);
+        const account = await trx.get<BankAccountRow>('SELECT id FROM bank_accounts WHERE account_no = ?', [n]);
         if (!account) continue;
 
-        const existing = this.db.get<{ c: number }>('SELECT COUNT(*) AS c FROM bank_transactions WHERE bank_account_id = ?', [account.id]);
+        const existing = await trx.get<{ c: number }>('SELECT COUNT(*) AS c FROM bank_transactions WHERE bank_account_id = ?', [account.id]);
         let seq = existing?.c || 0;
 
+        const rows: { rowNumber: number; values: any[] }[] = [];
         sheet.eachRow((row, rowNumber) => {
-          if (rowNumber === 1) return; // header
-          const v = row.values as any[]; // 1-indexed
+          rows.push({ rowNumber, values: row.values as any[] });
+        });
+
+        for (const { rowNumber, values: v } of rows) {
+          if (rowNumber === 1) continue; // header
           const row_no = v[1] != null && v[1] !== '' ? Number(v[1]) : null;
           let bank_code = v[2] != null ? String(v[2]).trim() : '';
           const value_date = v[3] != null && v[3] !== '' ? String(v[3]) : null;
@@ -503,25 +520,25 @@ export class ReconciliationService {
 
           const isBlank = !bank_code && !value_date && !purchase_code_1 && !purchase_code_2 && !debit &&
             !sales_code_1 && !sales_code_2 && !credit && !purchase_remark && !sales_remark;
-          if (isBlank) return;
+          if (isBlank) continue;
 
           if (!bank_code) {
             seq++;
             bank_code = `BT-${n}-${String(seq).padStart(3, '0')}`;
           }
 
-          this.db.run(
+          await trx.run(
             `INSERT INTO bank_transactions
               (bank_account_id, row_no, bank_code, value_date, purchase_code_1, purchase_code_2, debit, purchase_remark, sales_code_1, sales_code_2, credit, sales_remark)
              VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
             [account.id, row_no, bank_code, value_date, purchase_code_1, purchase_code_2, debit, purchase_remark, sales_code_1, sales_code_2, credit, sales_remark],
           );
           total_imported++;
-        });
+        }
       }
     });
 
-    logActivity(this.db, user, 'create', 'reconciliation', null, `imported ${total_imported} bank transaction row(s)`);
+    await logActivity(this.db, user, 'create', 'reconciliation', null, `imported ${total_imported} bank transaction row(s)`);
     return { total_imported };
   }
 }

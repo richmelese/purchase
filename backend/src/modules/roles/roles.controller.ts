@@ -28,25 +28,25 @@ export class RolesController {
 
   @Post()
   @RequirePermission('roles', 'create')
-  create(@Body() body: RoleBody, @CurrentUser() user: AuthUser) {
-    const created = this.roles.create(body);
-    logActivity(this.db, user, 'create', 'roles', created.id, `created role ${created.label}`);
+  async create(@Body() body: RoleBody, @CurrentUser() user: AuthUser) {
+    const created = await this.roles.create(body);
+    await logActivity(this.db, user, 'create', 'roles', created.id, `created role ${created.label}`);
     return created;
   }
 
   @Put(':id')
   @RequirePermission('roles', 'edit')
-  update(@Param('id', ParseIntPipe) id: number, @Body() body: RoleBody, @CurrentUser() user: AuthUser) {
-    const updated = this.roles.update(id, body);
-    logActivity(this.db, user, 'update', 'roles', id, `updated role ${updated.label}`);
+  async update(@Param('id', ParseIntPipe) id: number, @Body() body: RoleBody, @CurrentUser() user: AuthUser) {
+    const updated = await this.roles.update(id, body);
+    await logActivity(this.db, user, 'update', 'roles', id, `updated role ${updated.label}`);
     return updated;
   }
 
   @Delete(':id')
   @HttpCode(204)
   @RequirePermission('roles', 'delete')
-  remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
-    const removed = this.roles.remove(id);
-    logActivity(this.db, user, 'delete', 'roles', id, `deleted role ${removed.label}`);
+  async remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    const removed = await this.roles.remove(id);
+    await logActivity(this.db, user, 'delete', 'roles', id, `deleted role ${removed.label}`);
   }
 }

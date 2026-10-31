@@ -7,25 +7,29 @@ following Ethiopian tax months (Hamle → Sene).
 ## Architecture
 
 ```
-Browser ──► Next.js (UI + backend-for-frontend, :3000) ──► NestJS API (private, 127.0.0.1:5000) ──► SQLite (data/psm.db)
+Browser ──► frontend/ (Next.js UI + BFF, :3000) ──► backend/ (NestJS API, private, 127.0.0.1:5000) ──► Postgres
 ```
 
-- **Frontend / BFF** (project root): Next.js 15 (App Router, React 19). The browser only ever talks to this
-  server. `app/api/[...path]/route.js` forwards every `/api/*` call to the API (cookies, uploads and Excel
+- **`frontend/`** (Next.js 15, App Router, React 19): the only thing the browser talks to.
+  `app/api/[...path]/route.js` forwards every `/api/*` call to the API (cookies, uploads and Excel
   downloads included), and `middleware.js` sends signed-out visitors to the sign-in page.
   Server-only code lives in `lib/server/`.
-- **Backend API** (`purchase-backend/`): NestJS 12 + SQLite (built into Node.js, no database server).
-  It is never exposed to browsers: it listens on localhost (or the private Docker network) and, when
-  `BFF_SHARED_SECRET` is set, rejects any request that did not come through the BFF.
+- **`backend/`** (NestJS 12 + Postgres via `pg`): never exposed to browsers — it listens on localhost
+  (or the private Docker network) and, when `BFF_SHARED_SECRET` is set, rejects any request that did
+  not come through the BFF.
 - **Excel:** exports in the same layout as the workbook (P. Detail, P. Summary, WH, VAT declaration…)
 
 ## Requirements
 
 - Node.js **22.13 or newer** (tested on 24.19)
+- A Postgres server. For local development, `docker compose up -d postgres` starts one for you
+  (see Docker section below) — no separate Postgres install needed.
 
 ## First-time setup
 
 ```bash
+cp .env.example .env                                              # set POSTGRES_PASSWORD, BFF_SHARED_SECRET
+docker compose up -d postgres                                     # start Postgres (see Docker section)
 npm run setup                                                     # installs frontend + backend
 npm run import -- "C:UsersHPDocumentsAll In One Sales.xlsx"   # products + suppliers (+ any detail rows)
 npm run build
@@ -42,19 +46,24 @@ Open <http://localhost:3000>.
 | `npm run dev:frontend` / `npm run dev:backend` | Run one side only |
 
 `npm run dev` and `npm start` generate a fresh shared secret for the BFF ↔ API link on every run, so
-nothing needs configuring locally. Optional environment variables: `PORT` (UI, default 3000), `HOST`
-(default 127.0.0.1 – set to `0.0.0.0` to allow other computers on the network), `API_PORT` (default 5000),
-`DATABASE_PATH` (default `data/psm.db`).
+nothing needs configuring locally beyond Postgres being up. Optional environment variables: `PORT`
+(UI, default 3000), `HOST` (default 127.0.0.1 – set to `0.0.0.0` to allow other computers on the
+network), `API_PORT` (default 5000), `DATABASE_URL` (backend connection string, default
+`postgres://psm:psm@localhost:5437/psm` — matches `docker compose up -d postgres`'s default).
 
 ### Docker
 
 ```bash
-cp .env.example .env       # set BFF_SHARED_SECRET to a long random value
+cp .env.example .env       # set POSTGRES_PASSWORD and BFF_SHARED_SECRET to long random values
 docker compose up -d --build
 ```
 
-Only the frontend is published (port 3000). The API container has no published port and the database
-stays in `./data`.
+Only the frontend is published (port 3000). The API container has no published port; Postgres's data
+lives in a named Docker volume (`pgdata`) and, only for local development convenience, is also
+reachable from the host at `localhost:${POSTGRES_PORT:-5437}`.
+
+**Backup/restore:** Settings → Export & backup (admin only) downloads a plain-text `.sql` dump of
+every table — restore it with `psql $DATABASE_URL < backup.sql` against an empty database.
 
 ## Demo data
 

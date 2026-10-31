@@ -73,16 +73,16 @@ const emptyMonths = () => new Array(12).fill(0);
 export class VatService {
   constructor(private readonly db: DatabaseService) {}
 
-  private getRules(): Rules {
-    const row = this.db.get<Rules>(
+  private async getRules(): Promise<Rules> {
+    const row = await this.db.get<Rules>(
       'SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold FROM settings WHERE id = 1',
     );
     return row || DEFAULT_RULES;
   }
 
-  private manualValues(fy: number, lineNo: number): number[] {
+  private async manualValues(fy: number, lineNo: number): Promise<number[]> {
     const values = emptyMonths();
-    const rows = this.db.all<{ fy_month: number; amount: number }>(
+    const rows = await this.db.all<{ fy_month: number; amount: number }>(
       'SELECT fy_month, amount FROM vat_adjustments WHERE fy = ? AND line_no = ?',
       [fy, lineNo],
     );
@@ -90,9 +90,9 @@ export class VatService {
     return values;
   }
 
-  get(fy: number) {
-    const rules = this.getRules();
-    const invoices = this.db.all<InvoiceRow>('SELECT id, kind, fy, fy_month FROM invoices WHERE fy = ?', [fy]);
+  async get(fy: number) {
+    const rules = await this.getRules();
+    const invoices = await this.db.all<InvoiceRow>('SELECT id, kind, fy, fy_month FROM invoices WHERE fy = ?', [fy]);
 
     const valueLines: Record<number, number[]> = {};
     const ensure = (no: number) => (valueLines[no] ||= emptyMonths());
@@ -101,7 +101,7 @@ export class VatService {
     if (invoices.length) {
       const ids = invoices.map((i) => i.id);
       const placeholders = ids.map(() => '?').join(',');
-      const lineRows = this.db.all<LineRow>(`SELECT * FROM invoice_lines WHERE invoice_id IN (${placeholders})`, ids);
+      const lineRows = await this.db.all<LineRow>(`SELECT * FROM invoice_lines WHERE invoice_id IN (${placeholders})`, ids);
       const linesByInvoice: Record<number, LineRow[]> = {};
       for (const l of lineRows) (linesByInvoice[l.invoice_id] ||= []).push(l);
 
@@ -122,11 +122,11 @@ export class VatService {
       }
     }
 
-    const reverseTax = this.manualValues(fy, 140);
-    const debitCredit = this.manualValues(fy, 145);
-    const govVoucher = this.manualValues(fy, 175);
-    const otherCredits = this.manualValues(fy, 180);
-    const openingManual = this.manualValues(fy, 195); // only fy_month 0 is meaningful
+    const reverseTax = await this.manualValues(fy, 140);
+    const debitCredit = await this.manualValues(fy, 145);
+    const govVoucher = await this.manualValues(fy, 175);
+    const otherCredits = await this.manualValues(fy, 180);
+    const openingManual = await this.manualValues(fy, 195); // only fy_month 0 is meaningful
 
     const line55 = emptyMonths();
     const line60 = emptyMonths();
@@ -209,13 +209,13 @@ export class VatService {
     return { months: FY_MONTHS, lines, openingCredit: line195[0] };
   }
 
-  updateAdjustments(fy: number, items: { line_no: number; fy_month: number; amount: number }[]) {
-    this.db.transaction(() => {
+  async updateAdjustments(fy: number, items: { line_no: number; fy_month: number; amount: number }[]) {
+    await this.db.transaction(async (trx) => {
       for (const item of items) {
         const lineNo = Number(item.line_no);
         const fyMonth = Number(item.fy_month);
         const amount = Number(item.amount) || 0;
-        this.db.run(
+        await trx.run(
           `INSERT INTO vat_adjustments (fy, line_no, fy_month, amount) VALUES (?, ?, ?, ?)
            ON CONFLICT(fy, line_no, fy_month) DO UPDATE SET amount = excluded.amount`,
           [fy, lineNo, fyMonth, amount],

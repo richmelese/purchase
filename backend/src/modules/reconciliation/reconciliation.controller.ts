@@ -57,7 +57,7 @@ export class ReconciliationController {
   @HttpCode(204)
   @RequirePermission('reconciliation', 'delete')
   deleteTransaction(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    this.service.deleteTransaction(user, Number(id));
+    return this.service.deleteTransaction(user, Number(id));
   }
 
   @Get('purchases')

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { DatabaseService } from '../../db/database.service';
+import { DatabaseService, SQL_NOW } from '../../db/database.service';
 import { round2 } from '../../common/calc';
 import { logActivity } from '../../common/activity-log';
 import type { AuthUser } from '../../common/auth.guard';
@@ -104,8 +104,8 @@ export class InventoryService {
 
   // ---- shared aggregation (computed live, never stored — see BUILDING_MODULES.md) ----
 
-  private purchaseAggByCode(): Map<string, { qty: number; amt: number }> {
-    const rows = this.db.all<PurchaseAgg>(
+  private async purchaseAggByCode(): Promise<Map<string, { qty: number; amt: number }>> {
+    const rows = await this.db.all<PurchaseAgg>(
       `SELECT il.product_code AS code, SUM(il.qty) AS qty, SUM(il.qty * il.unit_price) AS amt
        FROM invoice_lines il JOIN invoices i ON i.id = il.invoice_id
        WHERE i.kind = 'P' AND il.product_code IS NOT NULL AND il.product_code <> ''
@@ -114,8 +114,8 @@ export class InventoryService {
     return new Map(rows.map((r) => [r.code, { qty: r.qty || 0, amt: r.amt || 0 }]));
   }
 
-  private salesAggByCode(): Map<string, number> {
-    const rows = this.db.all<QtyAgg>(
+  private async salesAggByCode(): Promise<Map<string, number>> {
+    const rows = await this.db.all<QtyAgg>(
       `SELECT il.product_code AS code, SUM(il.qty) AS qty
        FROM invoice_lines il JOIN invoices i ON i.id = il.invoice_id
        WHERE i.kind = 'S' AND il.product_code IS NOT NULL AND il.product_code <> ''
@@ -124,8 +124,8 @@ export class InventoryService {
     return new Map(rows.map((r) => [r.code, r.qty || 0]));
   }
 
-  private issueAggByCode(): Map<string, number> {
-    const rows = this.db.all<QtyAgg>(
+  private async issueAggByCode(): Promise<Map<string, number>> {
+    const rows = await this.db.all<QtyAgg>(
       `SELECT p.code AS code, SUM(si.qty) AS qty
        FROM stock_issues si JOIN products p ON p.id = si.product_id
        GROUP BY p.code`,
@@ -156,19 +156,19 @@ export class InventoryService {
 
   /** Recomputes stock_in/out for exactly one product's code straight from the source tables — used by the
    * delete guard so a stale in-memory value can never let a product with movements be removed. */
-  private computeStockForCodeExact(code: string) {
-    const p = this.db.get<{ qty: number | null; amt: number | null }>(
+  private async computeStockForCodeExact(code: string) {
+    const p = await this.db.get<{ qty: number | null; amt: number | null }>(
       `SELECT SUM(il.qty) AS qty, SUM(il.qty * il.unit_price) AS amt
        FROM invoice_lines il JOIN invoices i ON i.id = il.invoice_id
        WHERE i.kind = 'P' AND il.product_code = ?`,
       [code],
     );
-    const s = this.db.get<{ qty: number | null }>(
+    const s = await this.db.get<{ qty: number | null }>(
       `SELECT SUM(il.qty) AS qty FROM invoice_lines il JOIN invoices i ON i.id = il.invoice_id
        WHERE i.kind = 'S' AND il.product_code = ?`,
       [code],
     );
-    const iss = this.db.get<{ qty: number | null }>(
+    const iss = await this.db.get<{ qty: number | null }>(
       `SELECT SUM(si.qty) AS qty FROM stock_issues si JOIN products pr ON pr.id = si.product_id WHERE pr.code = ?`,
       [code],
     );
@@ -202,22 +202,22 @@ export class InventoryService {
 
   // ---- products ----
 
-  listProducts() {
-    const rows = this.db.all<ProductRow>('SELECT * FROM products ORDER BY code');
-    const purchase = this.purchaseAggByCode();
-    const sales = this.salesAggByCode();
-    const issues = this.issueAggByCode();
+  async listProducts() {
+    const rows = await this.db.all<ProductRow>('SELECT * FROM products ORDER BY code');
+    const purchase = await this.purchaseAggByCode();
+    const sales = await this.salesAggByCode();
+    const issues = await this.issueAggByCode();
     return rows.map((r) => this.toProduct(r, this.computeStock(r, purchase, sales, issues)));
   }
 
-  private getProductRow(id: number): ProductRow {
-    const row = this.db.get<ProductRow>('SELECT * FROM products WHERE id = ?', [id]);
+  private async getProductRow(id: number): Promise<ProductRow> {
+    const row = await this.db.get<ProductRow>('SELECT * FROM products WHERE id = ?', [id]);
     if (!row) throw new NotFoundException('Product not found');
     return row;
   }
 
-  getNextProductCode(): string {
-    const rows = this.db.all<{ code: string }>("SELECT code FROM products WHERE code LIKE 'P-%'");
+  async getNextProductCode(): Promise<string> {
+    const rows = await this.db.all<{ code: string }>("SELECT code FROM products WHERE code LIKE 'P-%'");
     let max = 0;
     for (const r of rows) {
       const m = /^P-(\d+)$/.exec(r.code);
@@ -226,22 +226,22 @@ export class InventoryService {
     return `P-${String(max + 1).padStart(4, '0')}`;
   }
 
-  private validateProductBody(body: ProductBody, selfId?: number) {
+  private async validateProductBody(body: ProductBody, selfId?: number) {
     const fields: Record<string, string> = {};
     if (!body.code || !String(body.code).trim()) fields.code = 'Required';
     if (!body.name_en || !String(body.name_en).trim()) fields.name_en = 'Required';
     if (Object.keys(fields).length) {
       throw new BadRequestException({ error: 'Please check the form', fields });
     }
-    const existing = this.db.get<{ id: number }>('SELECT id FROM products WHERE code = ?', [body.code]);
+    const existing = await this.db.get<{ id: number }>('SELECT id FROM products WHERE code = ?', [body.code]);
     if (existing && existing.id !== selfId) {
       throw new BadRequestException({ error: 'Please check the form', fields: { code: 'Already in use' } });
     }
   }
 
-  createProduct(body: ProductBody, user: AuthUser) {
-    this.validateProductBody(body);
-    this.db.run(
+  async createProduct(body: ProductBody, user: AuthUser) {
+    await this.validateProductBody(body);
+    await this.db.run(
       `INSERT INTO products (code, name_en, name_am, category, brand, model, serial_no, unit, track_stock,
         min_stock, opening_stock, purchase_price, selling_price, notes)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -252,18 +252,18 @@ export class InventoryService {
         body.notes ?? null,
       ],
     );
-    const row = this.db.get<ProductRow>('SELECT * FROM products WHERE code = ?', [body.code])!;
-    logActivity(this.db, user, 'create', 'products', row.id, `Created product ${row.code} — ${row.name_en}`);
+    const row = (await this.db.get<ProductRow>('SELECT * FROM products WHERE code = ?', [body.code]))!;
+    await logActivity(this.db, user, 'create', 'products', row.id, `Created product ${row.code} — ${row.name_en}`);
     return this.toProduct(row, this.computeStock(row, new Map(), new Map(), new Map()));
   }
 
-  updateProduct(id: number, body: ProductBody, user: AuthUser) {
-    const existing = this.getProductRow(id);
-    this.validateProductBody(body, id);
-    this.db.run(
+  async updateProduct(id: number, body: ProductBody, user: AuthUser) {
+    const existing = await this.getProductRow(id);
+    await this.validateProductBody(body, id);
+    await this.db.run(
       `UPDATE products SET code = ?, name_en = ?, name_am = ?, category = ?, brand = ?, model = ?,
         serial_no = ?, unit = ?, track_stock = ?, min_stock = ?, opening_stock = ?, purchase_price = ?,
-        selling_price = ?, notes = ?, updated_at = datetime('now') WHERE id = ?`,
+        selling_price = ?, notes = ?, updated_at = ${SQL_NOW} WHERE id = ?`,
       [
         body.code, body.name_en, body.name_am ?? null, body.category ?? null, body.brand ?? null,
         body.model ?? null, body.serial_no ?? null, body.unit ?? null, body.track_stock ? 1 : 0,
@@ -271,30 +271,30 @@ export class InventoryService {
         body.notes ?? null, id,
       ],
     );
-    const row = this.getProductRow(id);
-    logActivity(this.db, user, 'update', 'products', row.id, `Updated product ${row.code} — ${row.name_en}`);
-    const purchase = this.purchaseAggByCode();
-    const sales = this.salesAggByCode();
-    const issues = this.issueAggByCode();
+    const row = await this.getProductRow(id);
+    await logActivity(this.db, user, 'update', 'products', row.id, `Updated product ${row.code} — ${row.name_en}`);
+    const purchase = await this.purchaseAggByCode();
+    const sales = await this.salesAggByCode();
+    const issues = await this.issueAggByCode();
     void existing;
     return this.toProduct(row, this.computeStock(row, purchase, sales, issues));
   }
 
-  deleteProduct(id: number, user: AuthUser) {
-    const row = this.getProductRow(id);
-    const { stock_in, stock_out } = this.computeStockForCodeExact(row.code);
+  async deleteProduct(id: number, user: AuthUser) {
+    const row = await this.getProductRow(id);
+    const { stock_in, stock_out } = await this.computeStockForCodeExact(row.code);
     if (stock_in > 0 || stock_out > 0) {
       throw new BadRequestException('Cannot delete a product that has recorded purchases, sales, or issues');
     }
-    this.db.run('DELETE FROM products WHERE id = ?', [id]);
-    logActivity(this.db, user, 'delete', 'products', id, `Deleted product ${row.code} — ${row.name_en}`);
+    await this.db.run('DELETE FROM products WHERE id = ?', [id]);
+    await logActivity(this.db, user, 'delete', 'products', id, `Deleted product ${row.code} — ${row.name_en}`);
   }
 
-  getProductMovements(id: number) {
-    const row = this.getProductRow(id);
+  async getProductMovements(id: number) {
+    const row = await this.getProductRow(id);
     return {
-      in: this.stockInRows(row.code),
-      out: this.stockOutRows(row.code),
+      in: await this.stockInRows(row.code),
+      out: await this.stockOutRows(row.code),
     };
   }
 
@@ -308,8 +308,8 @@ export class InventoryService {
     );
   }
 
-  private nextIssueNo(): string {
-    const rows = this.db.all<{ issue_no: string }>('SELECT issue_no FROM stock_issues');
+  private async nextIssueNo(): Promise<string> {
+    const rows = await this.db.all<{ issue_no: string }>('SELECT issue_no FROM stock_issues');
     let max = 0;
     for (const r of rows) {
       const m = /^ISS(\d+)$/.exec(r.issue_no);
@@ -318,7 +318,7 @@ export class InventoryService {
     return `ISS${String(max + 1).padStart(4, '0')}`;
   }
 
-  createIssue(body: IssueBody, user: AuthUser) {
+  async createIssue(body: IssueBody, user: AuthUser) {
     const fields: Record<string, string> = {};
     if (!body.date) fields.date = 'Required';
     if (!body.product_id) fields.product_id = 'Required';
@@ -326,19 +326,19 @@ export class InventoryService {
     if (Object.keys(fields).length) {
       throw new BadRequestException({ error: 'Please check the form', fields });
     }
-    const product = this.db.get<{ id: number; code: string; name_en: string }>(
+    const product = await this.db.get<{ id: number; code: string; name_en: string }>(
       'SELECT id, code, name_en FROM products WHERE id = ?', [body.product_id],
     );
     if (!product) throw new BadRequestException({ error: 'Please check the form', fields: { product_id: 'Product not found' } });
 
-    const issue_no = this.nextIssueNo();
-    this.db.run(
+    const issue_no = await this.nextIssueNo();
+    await this.db.run(
       `INSERT INTO stock_issues (issue_no, date, product_id, qty, department, purpose, approved_by)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [issue_no, body.date, body.product_id, body.qty, body.department ?? null, body.purpose ?? null, body.approved_by ?? null],
     );
-    const row = this.db.get<{ id: number }>('SELECT id FROM stock_issues WHERE issue_no = ?', [issue_no])!;
-    logActivity(this.db, user, 'create', 'issues', row.id, `Issued ${body.qty} of ${product.code} — ${product.name_en} (${issue_no})`);
+    const row = (await this.db.get<{ id: number }>('SELECT id FROM stock_issues WHERE issue_no = ?', [issue_no]))!;
+    await logActivity(this.db, user, 'create', 'issues', row.id, `Issued ${body.qty} of ${product.code} — ${product.name_en} (${issue_no})`);
     return {
       id: row.id,
       issue_no,
@@ -352,16 +352,16 @@ export class InventoryService {
     };
   }
 
-  deleteIssue(id: number, user: AuthUser) {
-    const row = this.db.get<{ id: number; issue_no: string }>('SELECT id, issue_no FROM stock_issues WHERE id = ?', [id]);
+  async deleteIssue(id: number, user: AuthUser) {
+    const row = await this.db.get<{ id: number; issue_no: string }>('SELECT id, issue_no FROM stock_issues WHERE id = ?', [id]);
     if (!row) throw new NotFoundException('Issue not found');
-    this.db.run('DELETE FROM stock_issues WHERE id = ?', [id]);
-    logActivity(this.db, user, 'delete', 'issues', id, `Deleted stock issue ${row.issue_no}`);
+    await this.db.run('DELETE FROM stock_issues WHERE id = ?', [id]);
+    await logActivity(this.db, user, 'delete', 'issues', id, `Deleted stock issue ${row.issue_no}`);
   }
 
   // ---- stock in / out ----
 
-  stockInRows(productCode?: string): StockInRow[] {
+  async stockInRows(productCode?: string): Promise<StockInRow[]> {
     const sql = `
       SELECT i.invoice_no AS purchase_code, il.product_code AS product_code, i.date AS date,
              i.vat_receipt_no AS grn_no, p.name_en AS product_name, pt.tin AS supplier_tin,
@@ -377,7 +377,7 @@ export class InventoryService {
     return this.db.all<StockInRow>(sql, productCode ? [productCode] : []);
   }
 
-  stockOutRows(productCode?: string): StockOutRow[] {
+  async stockOutRows(productCode?: string): Promise<StockOutRow[]> {
     const salesSql = `
       SELECT i.date AS date, 'Sale' AS source, i.id AS ref_id, i.invoice_no AS ref_no,
              il.product_code AS product_code, p.name_en AS product_name,
@@ -394,8 +394,8 @@ export class InventoryService {
              si.qty AS quantity, COALESCE(si.purpose, '') AS purpose, COALESCE(si.approved_by, '') AS approved_by
       FROM stock_issues si JOIN products p ON p.id = si.product_id
       WHERE 1 = 1 ${productCode ? 'AND p.code = ?' : ''}`;
-    const sales = this.db.all<StockOutRow>(salesSql, productCode ? [productCode] : []);
-    const issues = this.db.all<StockOutRow>(issuesSql, productCode ? [productCode] : []);
+    const sales = await this.db.all<StockOutRow>(salesSql, productCode ? [productCode] : []);
+    const issues = await this.db.all<StockOutRow>(issuesSql, productCode ? [productCode] : []);
     return [...sales, ...issues].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
   }
 

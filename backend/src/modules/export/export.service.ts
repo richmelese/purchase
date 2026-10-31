@@ -58,14 +58,14 @@ export class ExportService {
       .map(({ resource: _resource, ...rest }) => rest);
   }
 
-  private rules(): Rules {
-    const s = this.db.get<Rules>('SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold FROM settings WHERE id = 1');
+  private async rules(): Promise<Rules> {
+    const s = await this.db.get<Rules>('SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold FROM settings WHERE id = 1');
     return s || DEFAULT_RULES;
   }
 
   /** Lines + totals + withholding + balance for one invoice — mirrors the purchases/sales module's read-time computation. */
-  private computeInvoice(inv: InvoiceRow, rules: Rules) {
-    const rawLines = this.db.all<RawLine & { id: number; line_no: number; product_code: string | null; description: string | null; unit: number | null; tx_type: number | null }>(
+  private async computeInvoice(inv: InvoiceRow, rules: Rules) {
+    const rawLines = await this.db.all<RawLine & { id: number; line_no: number; product_code: string | null; description: string | null; unit: number | null; tx_type: number | null }>(
       'SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY line_no', [inv.id],
     );
     const lines = rawLines.map((l) => computeLine(l, rules));
@@ -75,23 +75,23 @@ export class ExportService {
       rules,
     );
     const amount_due = round2(totals.grand_total - wh.expected);
-    const paidRow = this.db.get<{ total: number }>('SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE invoice_id = ?', [inv.id]);
+    const paidRow = await this.db.get<{ total: number }>('SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE invoice_id = ?', [inv.id]);
     const amount_paid = round2(paidRow?.total || 0);
     const balance = round2(amount_due - amount_paid);
     return { lines, totals, wh, amount_due, amount_paid, balance };
   }
 
-  private productStock(p: ProductRow) {
-    const purchaseAgg = this.db.get<{ qty: number; amt: number }>(
+  private async productStock(p: ProductRow) {
+    const purchaseAgg = await this.db.get<{ qty: number; amt: number }>(
       `SELECT COALESCE(SUM(il.qty),0) as qty, COALESCE(SUM(il.qty*il.unit_price),0) as amt
        FROM invoice_lines il JOIN invoices i ON i.id = il.invoice_id
        WHERE i.kind = 'P' AND il.product_code = ?`, [p.code],
     );
-    const salesQty = this.db.get<{ qty: number }>(
+    const salesQty = await this.db.get<{ qty: number }>(
       `SELECT COALESCE(SUM(il.qty),0) as qty FROM invoice_lines il JOIN invoices i ON i.id = il.invoice_id
        WHERE i.kind = 'S' AND il.product_code = ?`, [p.code],
     );
-    const issuedQty = this.db.get<{ qty: number }>('SELECT COALESCE(SUM(qty),0) as qty FROM stock_issues WHERE product_id = ?', [p.id]);
+    const issuedQty = await this.db.get<{ qty: number }>('SELECT COALESCE(SUM(qty),0) as qty FROM stock_issues WHERE product_id = ?', [p.id]);
     const stockIn = purchaseAgg?.qty || 0;
     const stockOut = (salesQty?.qty || 0) + (issuedQty?.qty || 0);
     const current_stock = round2(p.opening_stock + stockIn - stockOut);
@@ -104,14 +104,14 @@ export class ExportService {
   // ---------------------------------------------------------------------
   // Purchases / Sales (P. Detail+Summery / S. Detail+Summery)
   // ---------------------------------------------------------------------
-  buildPurchasesSalesWorkbook(kind: 'P' | 'S', fy?: number, month?: number): ExcelJS.Workbook {
-    const rules = this.rules();
+  async buildPurchasesSalesWorkbook(kind: 'P' | 'S', fy?: number, month?: number): Promise<ExcelJS.Workbook> {
+    const rules = await this.rules();
     let sql = 'SELECT * FROM invoices WHERE kind = ?';
     const params: unknown[] = [kind];
     if (fy != null) { sql += ' AND fy = ?'; params.push(fy); }
     if (month != null) { sql += ' AND fy_month = ?'; params.push(month); }
     sql += ' ORDER BY date, id';
-    const invoices = this.db.all<InvoiceRow>(sql, params);
+    const invoices = await this.db.all<InvoiceRow>(sql, params);
 
     const wb = new ExcelJS.Workbook();
     const detail = wb.addWorksheet(kind === 'P' ? 'P. Detail' : 'S. Detail');
@@ -165,7 +165,7 @@ export class ExportService {
     ];
 
     for (const inv of invoices) {
-      const { lines, totals, wh, amount_due, amount_paid, balance } = this.computeInvoice(inv, rules);
+      const { lines, totals, wh, amount_due, amount_paid, balance } = await this.computeInvoice(inv, rules);
       for (const l of lines) {
         detail.addRow({
           invoice_no: inv.invoice_no, date: inv.date, party_tin: inv.party_tin, party_name: inv.party_name,
@@ -193,8 +193,8 @@ export class ExportService {
   // ---------------------------------------------------------------------
   // Credit (payables / receivables)
   // ---------------------------------------------------------------------
-  buildCreditWorkbook(): ExcelJS.Workbook {
-    const rules = this.rules();
+  async buildCreditWorkbook(): Promise<ExcelJS.Workbook> {
+    const rules = await this.rules();
     const wb = new ExcelJS.Workbook();
     const sheets: Array<['P' | 'S', string]> = [['P', 'Payable (Purchases)'], ['S', 'Receivable (Sales)']];
     for (const [kind, title] of sheets) {
@@ -210,10 +210,10 @@ export class ExportService {
         { header: 'Age (days)', key: 'age_days', width: 10 },
         { header: 'Age Bucket', key: 'age_bucket', width: 12 },
       ];
-      const invoices = this.db.all<InvoiceRow>("SELECT * FROM invoices WHERE kind = ? AND payment_type = 'Credit'", [kind]);
+      const invoices = await this.db.all<InvoiceRow>("SELECT * FROM invoices WHERE kind = ? AND payment_type = 'Credit'", [kind]);
       const today = Date.now();
       for (const inv of invoices) {
-        const { amount_due, amount_paid, balance } = this.computeInvoice(inv, rules);
+        const { amount_due, amount_paid, balance } = await this.computeInvoice(inv, rules);
         if (balance <= 0.009) continue; // open only
         const age_days = Math.max(0, Math.floor((today - new Date(inv.date).getTime()) / 86400000));
         ws.addRow({
@@ -228,7 +228,7 @@ export class ExportService {
   // ---------------------------------------------------------------------
   // Current stock
   // ---------------------------------------------------------------------
-  buildStockWorkbook(): ExcelJS.Workbook {
+  async buildStockWorkbook(): Promise<ExcelJS.Workbook> {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Current Stock');
     ws.columns = [
@@ -240,9 +240,9 @@ export class ExportService {
       { header: 'Stock Value', key: 'stock_value', width: 14 },
       { header: 'Status', key: 'status', width: 12 },
     ];
-    const products = this.db.all<ProductRow>('SELECT * FROM products ORDER BY code');
+    const products = await this.db.all<ProductRow>('SELECT * FROM products ORDER BY code');
     for (const p of products) {
-      const s = this.productStock(p);
+      const s = await this.productStock(p);
       ws.addRow({ code: p.code, name: p.name_en, current_stock: s.current_stock, min_stock: p.min_stock, unit_cost: s.unit_cost, stock_value: s.stock_value, status: s.status });
     }
     return wb;
@@ -251,7 +251,7 @@ export class ExportService {
   // ---------------------------------------------------------------------
   // Stock IN / OUT registers
   // ---------------------------------------------------------------------
-  buildStockInWorkbook(): ExcelJS.Workbook {
+  async buildStockInWorkbook(): Promise<ExcelJS.Workbook> {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Stock IN');
     ws.columns = [
@@ -268,7 +268,7 @@ export class ExportService {
       { header: 'Remark', key: 'remark', width: 24 },
       { header: 'Invoice ID', key: 'invoice_id', width: 10 },
     ];
-    const rows = this.db.all<any>(
+    const rows = await this.db.all<any>(
       `SELECT i.invoice_no as purchase_code, il.product_code, i.date, i.vat_receipt_no as grn_no,
               p.name_en as product_name, i.party_tin as supplier_tin, i.party_name as supplier_name,
               il.qty as quantity, il.unit_price as unit_cost, (il.qty * il.unit_price) as total_cost,
@@ -283,7 +283,7 @@ export class ExportService {
     return wb;
   }
 
-  buildStockOutWorkbook(): ExcelJS.Workbook {
+  async buildStockOutWorkbook(): Promise<ExcelJS.Workbook> {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Stock OUT');
     ws.columns = [
@@ -298,7 +298,7 @@ export class ExportService {
       { header: 'Purpose', key: 'purpose', width: 20 },
       { header: 'Approved By', key: 'approved_by', width: 16 },
     ];
-    const saleRows = this.db.all<any>(
+    const saleRows = await this.db.all<any>(
       `SELECT i.date, 'Sale' as source, i.id as ref_id, i.invoice_no as ref_no, il.product_code,
               p.name_en as product_name, i.party_name as issued_to, il.qty as quantity, NULL as purpose, NULL as approved_by
        FROM invoice_lines il
@@ -306,7 +306,7 @@ export class ExportService {
        JOIN products p ON p.code = il.product_code AND p.track_stock = 1
        WHERE i.kind = 'S'`,
     );
-    const issueRows = this.db.all<any>(
+    const issueRows = await this.db.all<any>(
       `SELECT si.date, 'Issue' as source, si.id as ref_id, si.issue_no as ref_no, p.code as product_code,
               p.name_en as product_name, si.department as issued_to, si.qty as quantity, si.purpose, si.approved_by
        FROM stock_issues si JOIN products p ON p.id = si.product_id`,
@@ -319,7 +319,7 @@ export class ExportService {
   // ---------------------------------------------------------------------
   // Supplier Lists / Product Lists (round-trip with /api/import/*)
   // ---------------------------------------------------------------------
-  buildPartiesListWorkbook(): ExcelJS.Workbook {
+  async buildPartiesListWorkbook(): Promise<ExcelJS.Workbook> {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Supplier Lists');
     ws.columns = [
@@ -332,12 +332,12 @@ export class ExportService {
       { header: 'Phone', key: 'phone', width: 14 },
       { header: 'Email', key: 'email', width: 24 },
     ];
-    const parties = this.db.all<any>('SELECT * FROM parties ORDER BY name');
+    const parties = await this.db.all<any>('SELECT * FROM parties ORDER BY name');
     parties.forEach((p, i) => ws.addRow({ no: i + 1, tin: p.tin, name: p.name, mrc1: p.mrc1, mrc2: p.mrc2, mrc3: p.mrc3, phone: p.phone, email: p.email }));
     return wb;
   }
 
-  buildProductsListWorkbook(): ExcelJS.Workbook {
+  async buildProductsListWorkbook(): Promise<ExcelJS.Workbook> {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Product Lists');
     ws.columns = [
@@ -357,23 +357,24 @@ export class ExportService {
       { header: 'Purchase Price', key: 'purchase_price', width: 12 },
       { header: 'Selling Price', key: 'selling_price', width: 12 },
     ];
-    const products = this.db.all<ProductRow>('SELECT * FROM products ORDER BY code');
-    products.forEach((p, i) => {
-      const s = this.productStock(p);
+    const products = await this.db.all<ProductRow>('SELECT * FROM products ORDER BY code');
+    for (let i = 0; i < products.length; i++) {
+      const p = products[i];
+      const s = await this.productStock(p);
       ws.addRow({
         no: i + 1, code: p.code, name_en: p.name_en, name_am: p.name_am, category: p.category, brand: p.brand,
         model: p.model, serial_no: p.serial_no, unit: p.unit, min_stock: p.min_stock, opening_stock: p.opening_stock,
         current_stock: s.current_stock, status: s.status, purchase_price: p.purchase_price, selling_price: p.selling_price,
       });
-    });
+    }
     return wb;
   }
 
   // ---------------------------------------------------------------------
   // Withholding register
   // ---------------------------------------------------------------------
-  buildWithholdingWorkbook(fy?: number, month?: number): ExcelJS.Workbook {
-    const rules = this.rules();
+  async buildWithholdingWorkbook(fy?: number, month?: number): Promise<ExcelJS.Workbook> {
+    const rules = await this.rules();
     const wb = new ExcelJS.Workbook();
     const sheets: Array<['P' | 'S', string]> = [['P', 'Purchases WH'], ['S', 'Sales WH']];
     for (const [kind, title] of sheets) {
@@ -399,9 +400,9 @@ export class ExportService {
       const params: unknown[] = [kind];
       if (fy != null) { sql += ' AND fy = ?'; params.push(fy); }
       if (month != null) { sql += ' AND fy_month = ?'; params.push(month); }
-      const invoices = this.db.all<InvoiceRow>(sql, params);
+      const invoices = await this.db.all<InvoiceRow>(sql, params);
       for (const inv of invoices) {
-        const { wh } = this.computeInvoice(inv, rules);
+        const { wh } = await this.computeInvoice(inv, rules);
         if (!wh.applicable) continue;
         const whPeriod: TaxPeriod | null = inv.wh_receipt_date ? taxPeriod(inv.wh_receipt_date) : null;
         const sameMonth = !!whPeriod && whPeriod.fy === inv.fy && whPeriod.idx === inv.fy_month;
@@ -420,8 +421,8 @@ export class ExportService {
   // ---------------------------------------------------------------------
   // VAT declaration (lines 5-205) — direct mapping-table lines only; see report note.
   // ---------------------------------------------------------------------
-  buildVatWorkbook(fy: number): ExcelJS.Workbook {
-    const rules = this.rules();
+  async buildVatWorkbook(fy: number): Promise<ExcelJS.Workbook> {
+    const rules = await this.rules();
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('VAT Declaration');
     ws.columns = [
@@ -454,7 +455,7 @@ export class ExportService {
 
     for (const def of lineDefs) {
       const values = new Array(12).fill(0);
-      const rows = this.db.all<any>(
+      const rows = await this.db.all<any>(
         `SELECT il.*, i.fy_month FROM invoice_lines il JOIN invoices i ON i.id = il.invoice_id
          WHERE i.kind = ? AND i.fy = ? AND il.tx_type = ?`,
         [def.kind, fy, def.tx_type],
@@ -474,15 +475,15 @@ export class ExportService {
   // ---------------------------------------------------------------------
   // Reports
   // ---------------------------------------------------------------------
-  buildReportWorkbook(type: string, fy: number, month?: number): ExcelJS.Workbook {
+  async buildReportWorkbook(type: string, fy: number, month?: number): Promise<ExcelJS.Workbook> {
     if (type === 'products') return this.buildProductsReportWorkbook(fy, month);
     if (type === 'suppliers') return this.buildPartyReportWorkbook('P', fy, month);
     if (type === 'customers') return this.buildPartyReportWorkbook('S', fy, month);
     return this.buildMonthlyReportWorkbook(fy);
   }
 
-  private buildMonthlyReportWorkbook(fy: number): ExcelJS.Workbook {
-    const rules = this.rules();
+  private async buildMonthlyReportWorkbook(fy: number): Promise<ExcelJS.Workbook> {
+    const rules = await this.rules();
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Monthly Report');
     ws.columns = [
@@ -499,12 +500,12 @@ export class ExportService {
     ];
     const totals = { sales: 0, output_vat: 0, purchases: 0, input_vat: 0, net_vat: 0, wh_on_purchases: 0, wh_on_sales: 0, sales_count: 0, purchase_count: 0 };
     for (let idx = 0; idx < 12; idx++) {
-      const pInvoices = this.db.all<InvoiceRow>('SELECT * FROM invoices WHERE kind = ? AND fy = ? AND fy_month = ?', ['P', fy, idx]);
-      const sInvoices = this.db.all<InvoiceRow>('SELECT * FROM invoices WHERE kind = ? AND fy = ? AND fy_month = ?', ['S', fy, idx]);
+      const pInvoices = await this.db.all<InvoiceRow>('SELECT * FROM invoices WHERE kind = ? AND fy = ? AND fy_month = ?', ['P', fy, idx]);
+      const sInvoices = await this.db.all<InvoiceRow>('SELECT * FROM invoices WHERE kind = ? AND fy = ? AND fy_month = ?', ['S', fy, idx]);
       let purchases = 0, input_vat = 0, wh_on_purchases = 0;
-      for (const inv of pInvoices) { const { totals: t, wh } = this.computeInvoice(inv, rules); purchases += t.grand_total; input_vat += t.vat_amount; wh_on_purchases += wh.expected; }
+      for (const inv of pInvoices) { const { totals: t, wh } = await this.computeInvoice(inv, rules); purchases += t.grand_total; input_vat += t.vat_amount; wh_on_purchases += wh.expected; }
       let sales = 0, output_vat = 0, wh_on_sales = 0;
-      for (const inv of sInvoices) { const { totals: t, wh } = this.computeInvoice(inv, rules); sales += t.grand_total; output_vat += t.vat_amount; wh_on_sales += wh.expected; }
+      for (const inv of sInvoices) { const { totals: t, wh } = await this.computeInvoice(inv, rules); sales += t.grand_total; output_vat += t.vat_amount; wh_on_sales += wh.expected; }
       const row = {
         month: FY_MONTHS[idx], sales: round2(sales), output_vat: round2(output_vat), purchases: round2(purchases),
         input_vat: round2(input_vat), net_vat: round2(output_vat - input_vat), wh_on_purchases: round2(wh_on_purchases),
@@ -521,8 +522,8 @@ export class ExportService {
     return wb;
   }
 
-  private productUnitCost(p: ProductRow): number {
-    const agg = this.db.get<{ qty: number; amt: number }>(
+  private async productUnitCost(p: ProductRow): Promise<number> {
+    const agg = await this.db.get<{ qty: number; amt: number }>(
       `SELECT COALESCE(SUM(il.qty),0) as qty, COALESCE(SUM(il.qty*il.unit_price),0) as amt
        FROM invoice_lines il JOIN invoices i ON i.id = il.invoice_id WHERE i.kind = 'P' AND il.product_code = ?`,
       [p.code],
@@ -530,8 +531,8 @@ export class ExportService {
     return agg && agg.qty > 0 ? round2(agg.amt / agg.qty) : round2(p.purchase_price);
   }
 
-  private buildProductsReportWorkbook(fy: number, month?: number): ExcelJS.Workbook {
-    const rules = this.rules();
+  private async buildProductsReportWorkbook(fy: number, month?: number): Promise<ExcelJS.Workbook> {
+    const rules = await this.rules();
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Sales by Product');
     ws.columns = [
@@ -548,7 +549,7 @@ export class ExportService {
     let sql = "SELECT il.*, i.fy_month FROM invoice_lines il JOIN invoices i ON i.id = il.invoice_id WHERE i.kind = 'S' AND i.fy = ?";
     const params: unknown[] = [fy];
     if (month != null) { sql += ' AND i.fy_month = ?'; params.push(month); }
-    const rows = this.db.all<any>(sql, params);
+    const rows = await this.db.all<any>(sql, params);
     const byProduct = new Map<string, { qty: number; sales: number; vat: number; name: string }>();
     for (const r of rows) {
       if (!r.product_code) continue;
@@ -558,8 +559,8 @@ export class ExportService {
       byProduct.set(r.product_code, agg);
     }
     for (const [code, agg] of byProduct) {
-      const product = this.db.get<ProductRow>('SELECT * FROM products WHERE code = ?', [code]);
-      const unit_cost = product ? this.productUnitCost(product) : null;
+      const product = await this.db.get<ProductRow>('SELECT * FROM products WHERE code = ?', [code]);
+      const unit_cost = product ? await this.productUnitCost(product) : null;
       const cost = unit_cost != null ? round2(agg.qty * unit_cost) : null;
       const profit = cost != null ? round2(agg.sales - cost) : null;
       const margin = profit != null && agg.sales ? round2((profit / agg.sales) * 100) : null;
@@ -568,8 +569,8 @@ export class ExportService {
     return wb;
   }
 
-  private buildPartyReportWorkbook(kind: 'P' | 'S', fy: number, month?: number): ExcelJS.Workbook {
-    const rules = this.rules();
+  private async buildPartyReportWorkbook(kind: 'P' | 'S', fy: number, month?: number): Promise<ExcelJS.Workbook> {
+    const rules = await this.rules();
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet(kind === 'P' ? 'Purchases by Supplier' : 'Sales by Customer');
     ws.columns = [
@@ -585,11 +586,11 @@ export class ExportService {
     let sql = 'SELECT * FROM invoices WHERE kind = ? AND fy = ?';
     const params: unknown[] = [kind, fy];
     if (month != null) { sql += ' AND fy_month = ?'; params.push(month); }
-    const invoices = this.db.all<InvoiceRow>(sql, params);
+    const invoices = await this.db.all<InvoiceRow>(sql, params);
     const byParty = new Map<string, { name: string | null; tin: string | null; count: number; taxable: number; vat: number; total: number; wh: number; balance: number }>();
     for (const inv of invoices) {
       const key = inv.party_tin || inv.party_name || `#${inv.party_id ?? 'unknown'}`;
-      const { totals, wh, balance } = this.computeInvoice(inv, rules);
+      const { totals, wh, balance } = await this.computeInvoice(inv, rules);
       const agg = byParty.get(key) || { name: inv.party_name, tin: inv.party_tin, count: 0, taxable: 0, vat: 0, total: 0, wh: 0, balance: 0 };
       agg.count++; agg.taxable += totals.taxable_amount; agg.vat += totals.vat_amount; agg.total += totals.grand_total;
       agg.wh += wh.expected; agg.balance += balance;
@@ -599,5 +600,45 @@ export class ExportService {
       ws.addRow({ name: agg.name, tin: agg.tin, count: agg.count, taxable: round2(agg.taxable), vat: round2(agg.vat), total: round2(agg.total), wh: round2(agg.wh), balance: round2(agg.balance) });
     }
     return wb;
+  }
+
+  // ---------------------------------------------------------------------
+  // Backup (application-level SQL dump — replaces the old raw SQLite file copy; there is no
+  // single-file equivalent in Postgres, so GET /api/backup now streams `INSERT INTO ...` text).
+  // ---------------------------------------------------------------------
+  private static readonly BACKUP_TABLES = [
+    'roles', 'parties', 'users', 'user_party_rights',
+    // sessions intentionally excluded — not worth backing up
+    'products', 'invoices', 'invoice_lines', 'payments', 'stock_issues', 'settings',
+    'lookup_values', 'vat_adjustments', 'bank_accounts', 'bank_transactions', 'activity_log',
+  ] as const;
+
+  private sqlLiteral(v: unknown): string {
+    if (v === null || v === undefined) return 'NULL';
+    if (typeof v === 'number') return Number.isFinite(v) ? String(v) : 'NULL';
+    if (typeof v === 'boolean') return v ? '1' : '0';
+    if (v instanceof Date) return `'${v.toISOString()}'`;
+    return `'${String(v).replace(/'/g, "''")}'`;
+  }
+
+  /** Builds a full application-level SQL dump: one `INSERT INTO` statement per row, per table,
+   * in an order that respects foreign keys. Used by `GET /api/backup` in place of the old
+   * raw-SQLite-file download (which has no Postgres equivalent). */
+  async buildBackupSql(): Promise<string> {
+    const lines: string[] = [];
+    lines.push('-- Purchase & Sales Management System backup');
+    lines.push(`-- Generated ${new Date().toISOString()}`);
+    for (const table of ExportService.BACKUP_TABLES) {
+      const rows = await this.db.all<Record<string, unknown>>(`SELECT * FROM ${table}`);
+      lines.push('');
+      lines.push(`-- Table: ${table} (${rows.length} row${rows.length === 1 ? '' : 's'})`);
+      for (const row of rows) {
+        const columns = Object.keys(row);
+        if (!columns.length) continue;
+        const values = columns.map((c) => this.sqlLiteral(row[c]));
+        lines.push(`INSERT INTO ${table} (${columns.join(', ')}) VALUES (${values.join(', ')});`);
+      }
+    }
+    return lines.join('\n') + '\n';
   }
 }

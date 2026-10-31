@@ -28,8 +28,8 @@ interface UserRow {
 }
 
 /** Builds the full user shape (role, permissions, party rights) consumed across the API and by `GET /auth/me`. */
-export function loadFullUser(db: DatabaseService, id: number): (FullUser & { password_hash: string }) | undefined {
-  const row = db.get<UserRow & { password_hash: string }>('SELECT * FROM users WHERE id = ?', [id]);
+export async function loadFullUser(db: DatabaseService, id: number): Promise<(FullUser & { password_hash: string }) | undefined> {
+  const row = await db.get<UserRow & { password_hash: string }>('SELECT * FROM users WHERE id = ?', [id]);
   if (!row) return undefined;
 
   let role = '';
@@ -39,7 +39,7 @@ export function loadFullUser(db: DatabaseService, id: number): (FullUser & { pas
     role = 'company';
     roleLabel = 'Company account';
   } else if (row.role_id) {
-    const roleRow = db.get<{ name: string; label: string; permissions: string }>(
+    const roleRow = await db.get<{ name: string; label: string; permissions: string }>(
       'SELECT name, label, permissions FROM roles WHERE id = ?', [row.role_id],
     );
     if (roleRow) {
@@ -49,7 +49,7 @@ export function loadFullUser(db: DatabaseService, id: number): (FullUser & { pas
     }
   }
 
-  const rightsRows = db.all<{ party_id: number; view: number; create: number; edit: number; delete: number; export: number; name: string }>(
+  const rightsRows = await db.all<{ party_id: number; view: number; create: number; edit: number; delete: number; export: number; name: string }>(
     `SELECT upr.*, p.name FROM user_party_rights upr JOIN parties p ON p.id = upr.party_id WHERE upr.user_id = ?`,
     [id],
   );
@@ -62,7 +62,7 @@ export function loadFullUser(db: DatabaseService, id: number): (FullUser & { pas
 
   let company_name: string | undefined;
   if (row.party_id) {
-    const party = db.get<{ name: string }>('SELECT name FROM parties WHERE id = ?', [row.party_id]);
+    const party = await db.get<{ name: string }>('SELECT name FROM parties WHERE id = ?', [row.party_id]);
     company_name = party?.name;
   }
 

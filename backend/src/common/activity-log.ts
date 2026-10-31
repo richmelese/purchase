@@ -3,6 +3,7 @@ import type { AuthUser } from './auth.guard';
 
 export type ActivityAction = 'create' | 'update' | 'delete' | 'other';
 
+/** Returns a Promise — callers should `await` it so the log write finishes before the response does. */
 export function logActivity(
   db: DatabaseService,
   user: AuthUser | undefined,
@@ -10,8 +11,8 @@ export function logActivity(
   entity: string,
   entityId: string | number | null,
   summary: string,
-) {
-  db.run(
+): Promise<unknown> {
+  return db.run(
     'INSERT INTO activity_log (user_id, username, action, entity, entity_id, summary) VALUES (?, ?, ?, ?, ?, ?)',
     [user?.id ?? null, user?.username ?? null, action, entity, entityId == null ? null : String(entityId), summary],
   );
