@@ -8,6 +8,7 @@ interface Rules {
   wh_rate: number;
   wh_goods_threshold: number;
   wh_service_threshold: number;
+  vat_wh_rate: number;
 }
 
 interface InvoiceRow {
@@ -32,6 +33,19 @@ interface LineRow extends RawLine {
   description: string | null;
 }
 
+interface UnreportedRow {
+  id: number;
+  invoice_no: string;
+  date: string;
+  fy_month: number;
+  party_name: string | null;
+  party_tin: string | null;
+  report_status: string;
+  receipt_type: string;
+  mrc_number: string | null;
+  vat_receipt_no: string | null;
+}
+
 interface ComputedInvoice {
   taxable_amount: number;
   vat_amount: number;
@@ -53,7 +67,7 @@ export class ReportsService {
 
   private async getRules(): Promise<Rules> {
     const row = await this.db.get<Rules>(
-      'SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold FROM settings WHERE id = 1',
+      'SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold, vat_wh_rate FROM settings WHERE id = 1',
     );
     return row || DEFAULT_RULES;
   }
@@ -235,5 +249,53 @@ export class ReportsService {
       g.balance = round2(g.balance + c.balance);
     }
     return [...groups.values()];
+  }
+
+  /** Invoices still needing completion/reporting before period close: not yet marked 'Reported',
+   * or missing a field the IBCTMS manual requires filled in before close (TIN, party name, VAT
+   * receipt no, and — for MRC receipts — the MRC number). */
+  async unreported(kind: 'P' | 'S', fy?: number, month?: string) {
+    const where: string[] = ['kind = ?'];
+    const params: unknown[] = [kind];
+    if (fy !== undefined && Number.isFinite(fy)) {
+      where.push('fy = ?');
+      params.push(fy);
+    }
+    const hasMonth = month !== undefined && month !== '';
+    if (hasMonth) {
+      where.push('fy_month = ?');
+      params.push(Number(month));
+    }
+    where.push(
+      `(report_status = 'Not Reported'
+        OR party_tin IS NULL OR party_tin = ''
+        OR party_name IS NULL OR party_name = ''
+        OR vat_receipt_no IS NULL OR vat_receipt_no = ''
+        OR (receipt_type = 'MRC' AND (mrc_number IS NULL OR mrc_number = '')))`,
+    );
+
+    const rows = await this.db.all<UnreportedRow>(
+      `SELECT id, invoice_no, date, fy_month, party_name, party_tin, report_status, receipt_type, mrc_number, vat_receipt_no
+       FROM invoices WHERE ${where.join(' AND ')} ORDER BY date, id`,
+      params,
+    );
+
+    return rows.map((r) => {
+      const missing_fields: string[] = [];
+      if (!r.party_tin) missing_fields.push('party_tin');
+      if (!r.party_name) missing_fields.push('party_name');
+      if (!r.vat_receipt_no) missing_fields.push('vat_receipt_no');
+      if (r.receipt_type === 'MRC' && !r.mrc_number) missing_fields.push('mrc_number');
+      return {
+        id: r.id,
+        invoice_no: r.invoice_no,
+        date: r.date,
+        fy_month: r.fy_month,
+        party_name: r.party_name,
+        party_tin: r.party_tin,
+        report_status: r.report_status,
+        missing_fields,
+      };
+    });
   }
 }

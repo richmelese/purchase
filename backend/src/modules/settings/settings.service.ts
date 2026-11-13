@@ -31,6 +31,7 @@ interface SettingsRow {
   wh_rate: number;
   wh_goods_threshold: number;
   wh_service_threshold: number;
+  vat_wh_rate: number;
   profile: string;
 }
 
@@ -86,24 +87,29 @@ async getSettings() {
   }
 
   async updateSettings(
-    body: { vat_rate?: unknown; wh_rate?: unknown; wh_goods_threshold?: unknown; wh_service_threshold?: unknown },
+    body: {
+      vat_rate?: unknown; wh_rate?: unknown; wh_goods_threshold?: unknown; wh_service_threshold?: unknown;
+      vat_wh_rate?: unknown;
+    },
     user?: AuthUser,
   ) {
     const vat_rate = Number(body.vat_rate);
     const wh_rate = Number(body.wh_rate);
     const wh_goods_threshold = Number(body.wh_goods_threshold);
     const wh_service_threshold = Number(body.wh_service_threshold);
+    const vat_wh_rate = body.vat_wh_rate === undefined ? 0.5 : Number(body.vat_wh_rate);
     const fields: Record<string, string> = {};
     if (!Number.isFinite(vat_rate) || vat_rate < 0 || vat_rate > 1) fields.vat_rate = 'Enter a fraction between 0 and 1 (e.g. 0.15)';
     if (!Number.isFinite(wh_rate) || wh_rate < 0 || wh_rate > 1) fields.wh_rate = 'Enter a fraction between 0 and 1 (e.g. 0.03)';
     if (!Number.isFinite(wh_goods_threshold) || wh_goods_threshold < 0) fields.wh_goods_threshold = 'Enter a non-negative number';
     if (!Number.isFinite(wh_service_threshold) || wh_service_threshold < 0) fields.wh_service_threshold = 'Enter a non-negative number';
+    if (!Number.isFinite(vat_wh_rate) || vat_wh_rate < 0 || vat_wh_rate > 1) fields.vat_wh_rate = 'Enter a fraction between 0 and 1 (e.g. 0.5)';
     if (Object.keys(fields).length) throw new BadRequestException({ error: 'Please check the form', fields });
 
     await this.db.run(
-      `UPDATE settings SET vat_rate = ?, wh_rate = ?, wh_goods_threshold = ?, wh_service_threshold = ?,
+      `UPDATE settings SET vat_rate = ?, wh_rate = ?, wh_goods_threshold = ?, wh_service_threshold = ?, vat_wh_rate = ?,
          updated_at = ${SQL_NOW}, updated_by = ? WHERE id = 1`,
-      [vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold, user?.id ?? null],
+      [vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold, vat_wh_rate, user?.id ?? null],
     );
     await logActivity(this.db, user, 'update', 'settings', 'settings', 'updated tax rules');
     return this.getSettings();
@@ -111,7 +117,7 @@ async getSettings() {
 
   private async settingsRow(): Promise<SettingsRow> {
     return (await this.db.get<SettingsRow>(
-      'SELECT company_name, company_tin, company_address, vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold, profile FROM settings WHERE id = 1',
+      'SELECT company_name, company_tin, company_address, vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold, vat_wh_rate, profile FROM settings WHERE id = 1',
     ))!;
   }
 
@@ -121,6 +127,7 @@ async getSettings() {
       wh_rate: row.wh_rate,
       wh_goods_threshold: row.wh_goods_threshold,
       wh_service_threshold: row.wh_service_threshold,
+      vat_wh_rate: row.vat_wh_rate,
     };
     return {
       company_name: row.company_name,

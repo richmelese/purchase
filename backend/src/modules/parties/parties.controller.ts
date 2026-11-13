@@ -57,4 +57,10 @@ export class PartiesController {
   statement(@Param('id', ParseIntPipe) id: number) {
     return this.parties.statement(id);
   }
+
+  @Post(':id/merge')
+  @RequirePermission('parties', 'delete')
+  merge(@Param('id', ParseIntPipe) id: number, @Body() body: { into_id: number }, @CurrentUser() user: AuthUser) {
+    return this.parties.merge(id, Number(body.into_id), user);
+  }
 }

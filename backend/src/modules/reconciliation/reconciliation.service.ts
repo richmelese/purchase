@@ -78,12 +78,13 @@ export class ReconciliationService {
   // ---------- shared helpers ----------
 
   private async getRules() {
-    const s = await this.db.get<any>('SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold FROM settings WHERE id = 1');
+    const s = await this.db.get<any>('SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold, vat_wh_rate FROM settings WHERE id = 1');
     return {
       vat_rate: s?.vat_rate ?? DEFAULT_RULES.vat_rate,
       wh_rate: s?.wh_rate ?? DEFAULT_RULES.wh_rate,
       wh_goods_threshold: s?.wh_goods_threshold ?? DEFAULT_RULES.wh_goods_threshold,
       wh_service_threshold: s?.wh_service_threshold ?? DEFAULT_RULES.wh_service_threshold,
+      vat_wh_rate: s?.vat_wh_rate ?? DEFAULT_RULES.vat_wh_rate,
     };
   }
 

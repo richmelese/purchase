@@ -14,6 +14,28 @@ export interface AuditRow {
   action: 'create' | 'update' | 'delete' | 'other';
   entity: string;
   summary: string;
+  before: unknown;
+  after: unknown;
+}
+
+interface AuditRowRaw {
+  id: number;
+  at: string;
+  username: string | null;
+  action: 'create' | 'update' | 'delete' | 'other';
+  entity: string;
+  summary: string;
+  before: string | null;
+  after: string | null;
+}
+
+function parseJson(raw: string | null): unknown {
+  if (raw == null) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 const DEFAULT_LIMIT = 500;
@@ -42,9 +64,10 @@ export class AuditService {
 
     // created_at is already produced by sqlite's datetime('now') in exactly 'YYYY-MM-DD HH:MM:SS'
     // format — alias it as `at` rather than reformatting.
-    return await this.db.all<AuditRow>(
-      `SELECT id, created_at AS at, username, action, entity, summary FROM activity_log ${whereSql} ORDER BY id DESC LIMIT ?`,
+    const rows = await this.db.all<AuditRowRaw>(
+      `SELECT id, created_at AS at, username, action, entity, summary, before, after FROM activity_log ${whereSql} ORDER BY id DESC LIMIT ?`,
       [...params, n],
     );
+    return rows.map((r) => ({ ...r, before: parseJson(r.before), after: parseJson(r.after) }));
   }
 }

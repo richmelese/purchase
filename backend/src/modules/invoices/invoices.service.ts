@@ -2,10 +2,10 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { DatabaseService, SQL_NOW } from '../../db/database.service';
 import type { Executor } from '../../db/database.service';
 import {
-  DEFAULT_RULES, RawLine, computeLine, computeTotals, computeWithholding, receiptNumberError, round2,
+  DEFAULT_RULES, RawLine, computeLine, computeTotals, computeVatWithholding, computeWithholding, receiptNumberError, round2,
 } from '../../common/calc';
 import { taxPeriod } from '../../common/ethiopian';
-import { can, canCompany } from '../../common/permissions';
+import { canCompany } from '../../common/permissions';
 import { logActivity } from '../../common/activity-log';
 import type { AuthUser } from '../../common/auth.guard';
 
@@ -16,6 +16,7 @@ interface Rules {
   wh_rate: number;
   wh_goods_threshold: number;
   wh_service_threshold: number;
+  vat_wh_rate: number;
 }
 
 interface InvoiceRowRaw {
@@ -40,6 +41,9 @@ interface InvoiceRowRaw {
   wh_receipt_no: string | null;
   wh_receipt_date: string | null;
   wh_paid: number;
+  wh_reason_note: string | null;
+  vat_wh_applicable: number;
+  vat_wh_paid: number;
   created_by: number | null;
   updated_by: number | null;
   created_at: string;
@@ -69,6 +73,7 @@ interface PaymentRowRaw {
   amount: number;
   method: string | null;
   reference: string | null;
+  crv_no: number;
 }
 
 export interface ListQuery {
@@ -88,7 +93,7 @@ export class InvoicesService {
 
   private async getRules(): Promise<Rules> {
     const row = await this.db.get<Rules>(
-      'SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold FROM settings WHERE id = 1',
+      'SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold, vat_wh_rate FROM settings WHERE id = 1',
     );
     return row || DEFAULT_RULES;
   }
@@ -124,6 +129,10 @@ export class InvoicesService {
       { taxable_amount: totals.taxable_amount, vat_category: inv.vat_category, wh_receipt_type: inv.wh_receipt_type, wh_paid: inv.wh_paid },
       rules,
     );
+    const vat_wh = computeVatWithholding(
+      { vat_amount: totals.vat_amount, vat_wh_applicable: inv.vat_wh_applicable, vat_wh_paid: inv.vat_wh_paid },
+      rules,
+    );
     const amount_due = round2(totals.grand_total - wh.expected);
     const amount_paid = round2(paid || 0);
     const balance = round2(amount_due - amount_paid);
@@ -145,6 +154,7 @@ export class InvoicesService {
       grand_total: totals.grand_total,
       balance,
       wh,
+      vat_wh,
       _totals: totals,
       _amount_due: amount_due,
       _amount_paid: amount_paid,
@@ -237,6 +247,9 @@ export class InvoicesService {
       wh_receipt_no: inv.wh_receipt_no,
       wh_receipt_date: inv.wh_receipt_date,
       wh_paid: inv.wh_paid,
+      wh_reason_note: inv.wh_reason_note,
+      vat_wh_applicable: !!inv.vat_wh_applicable,
+      vat_wh_paid: inv.vat_wh_paid,
       notes: inv.notes,
       created_by: inv.created_by,
       updated_by: inv.updated_by,
@@ -261,7 +274,7 @@ export class InvoicesService {
         vat_amount: computedLines[idx].vat_amount,
         line_total: computedLines[idx].line_total,
       })),
-      payments: payments.map((p) => ({ id: p.id, date: p.date, method: p.method, reference: p.reference, amount: p.amount })),
+      payments: payments.map((p) => ({ id: p.id, date: p.date, method: p.method, reference: p.reference, amount: p.amount, crv_no: p.crv_no })),
     };
   }
 
@@ -308,7 +321,10 @@ export class InvoicesService {
     if (!tinStr) return null;
     const wantType = kind === 'P' ? 'Supplier' : 'Customer';
     const otherType = kind === 'P' ? 'Customer' : 'Supplier';
-    const rows = await this.db.all<{ id: number; type: string }>('SELECT id, type FROM parties WHERE tin = ?', [tinStr]);
+    const rows = await this.db.all<{ id: number; type: string }>(
+      'SELECT id, type FROM parties WHERE tin = ? AND merged_into_id IS NULL ORDER BY id',
+      [tinStr],
+    );
     const match = rows.find((r) => r.type === wantType || r.type === 'Both');
     if (match) return match.id;
     const other = rows.find((r) => r.type === otherType);
@@ -322,6 +338,45 @@ export class InvoicesService {
       [tinStr, nameStr, wantType],
     );
     return row!.id;
+  }
+
+  /**
+   * Section 9 uniqueness rule: company + supplier/customer + receipt type + receipt number + period.
+   * Matches against the resolved party_id when there is one, else falls back to the raw party_tin
+   * (e.g. walk-in / no-TIN parties), excluding the record's own id on update.
+   */
+  private async checkDuplicateReceipt(
+    kind: Kind,
+    fy: number,
+    fyMonth: number,
+    partyId: number | null,
+    partyTin: unknown,
+    receiptType: unknown,
+    vatReceiptNo: unknown,
+    excludeId?: number,
+  ) {
+    if (!vatReceiptNo) return;
+    const params: unknown[] = [kind, fy, fyMonth, receiptType, vatReceiptNo];
+    let partyClause: string;
+    if (partyId != null) {
+      partyClause = 'party_id = ?';
+      params.push(partyId);
+    } else {
+      partyClause = 'party_tin = ?';
+      params.push(partyTin || null);
+    }
+    let sql = `SELECT id FROM invoices WHERE kind = ? AND fy = ? AND fy_month = ? AND receipt_type = ? AND vat_receipt_no = ? AND ${partyClause}`;
+    if (excludeId != null) {
+      sql += ' AND id != ?';
+      params.push(excludeId);
+    }
+    const dup = await this.db.get<{ id: number }>(sql, params);
+    if (dup) {
+      throw new BadRequestException({
+        error: 'Please check the form',
+        fields: { vat_receipt_no: 'A receipt with this number already exists for this supplier/customer and period' },
+      });
+    }
   }
 
   private async insertLines(trx: Executor, invoiceId: number, lines: any[]) {
@@ -352,11 +407,12 @@ export class InvoicesService {
     const period = taxPeriod(body.date);
     if (!period) throw new BadRequestException({ error: 'Please check the form', fields: { date: 'Invalid date' } });
     const partyId = await this.resolvePartyId(kind, body.party_tin, body.party_name);
+    await this.checkDuplicateReceipt(kind, period.fy, period.idx, partyId, body.party_tin, body.receipt_type, body.vat_receipt_no);
 
     const newId = await this.db.transaction(async (trx) => {
       const row = await trx.get<{ id: number }>(
-        `INSERT INTO invoices (kind, invoice_no, payment_type, vat_category, calendar_type, party_tin, party_name, party_id, date, fy, fy_month, receipt_type, mrc_number, vat_receipt_no, report_status, notes, created_by, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+        `INSERT INTO invoices (kind, invoice_no, payment_type, vat_category, calendar_type, party_tin, party_name, party_id, date, fy, fy_month, receipt_type, mrc_number, vat_receipt_no, report_status, notes, vat_wh_applicable, vat_wh_paid, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
         [
           kind,
           body.invoice_no,
@@ -374,6 +430,8 @@ export class InvoicesService {
           body.vat_receipt_no || null,
           body.report_status || 'Not Reported',
           body.notes || null,
+          body.vat_wh_applicable ? 1 : 0,
+          Number(body.vat_wh_paid) || 0,
           user.id,
           user.id,
         ],
@@ -394,10 +452,11 @@ export class InvoicesService {
     const period = taxPeriod(body.date);
     if (!period) throw new BadRequestException({ error: 'Please check the form', fields: { date: 'Invalid date' } });
     const partyId = await this.resolvePartyId(kind, body.party_tin, body.party_name);
+    await this.checkDuplicateReceipt(kind, period.fy, period.idx, partyId, body.party_tin, body.receipt_type, body.vat_receipt_no, id);
 
     await this.db.transaction(async (trx) => {
       await trx.run(
-        `UPDATE invoices SET invoice_no=?, payment_type=?, vat_category=?, calendar_type=?, party_tin=?, party_name=?, party_id=?, date=?, fy=?, fy_month=?, receipt_type=?, mrc_number=?, vat_receipt_no=?, report_status=?, notes=?, updated_by=?, updated_at=${SQL_NOW} WHERE id=?`,
+        `UPDATE invoices SET invoice_no=?, payment_type=?, vat_category=?, calendar_type=?, party_tin=?, party_name=?, party_id=?, date=?, fy=?, fy_month=?, receipt_type=?, mrc_number=?, vat_receipt_no=?, report_status=?, notes=?, vat_wh_applicable=?, vat_wh_paid=?, updated_by=?, updated_at=${SQL_NOW} WHERE id=?`,
         [
           body.invoice_no,
           body.payment_type,
@@ -414,6 +473,8 @@ export class InvoicesService {
           body.vat_receipt_no || null,
           body.report_status || existing.report_status,
           body.notes || null,
+          body.vat_wh_applicable ? 1 : 0,
+          Number(body.vat_wh_paid) || 0,
           user.id,
           id,
         ],
@@ -422,13 +483,19 @@ export class InvoicesService {
       await this.insertLines(trx, id, body.lines);
     });
 
-    await logActivity(this.db, user, 'update', resourceFor(kind), id, `updated ${nounFor(kind)} ${body.invoice_no}`);
+    await logActivity(this.db, user, 'update', resourceFor(kind), id, `updated ${nounFor(kind)} ${body.invoice_no}`, {
+      before: existing,
+      after: body,
+    });
     return this.getDetail(kind, id);
   }
 
   async remove(kind: Kind, id: number, user: AuthUser) {
     const existing = await this.getInvoiceOrThrow(kind, id);
     if (!canCompany(user, existing.party_id, 'delete')) throw new ForbiddenException('No access to this party');
+    if (existing.report_status === 'Reported') {
+      throw new BadRequestException({ error: 'Mark this record back to "Not Reported" before deleting it.' });
+    }
     await this.db.run('DELETE FROM invoices WHERE id = ?', [id]);
     await logActivity(this.db, user, 'delete', resourceFor(kind), id, `deleted ${nounFor(kind)} ${existing.invoice_no}`);
   }
@@ -447,43 +514,23 @@ export class InvoicesService {
     const existing = await this.getInvoiceOrThrow(kind, id);
     if (!canCompany(user, existing.party_id, 'edit')) throw new ForbiddenException('No access to this party');
     await this.db.run(
-      `UPDATE invoices SET wh_receipt_type=?, wh_receipt_no=?, wh_receipt_date=?, wh_paid=?, updated_by=?, updated_at=${SQL_NOW} WHERE id=?`,
-      [body.wh_receipt_type ?? null, body.wh_receipt_no ?? null, body.wh_receipt_date ?? null, Number(body.wh_paid) || 0, user.id, id],
+      `UPDATE invoices SET wh_receipt_type=?, wh_receipt_no=?, wh_receipt_date=?, wh_paid=?, wh_reason_note=?, vat_wh_paid=?, updated_by=?, updated_at=${SQL_NOW} WHERE id=?`,
+      [
+        body.wh_receipt_type ?? null,
+        body.wh_receipt_no ?? null,
+        body.wh_receipt_date ?? null,
+        Number(body.wh_paid) || 0,
+        body.wh_reason_note ?? null,
+        Number(body.vat_wh_paid) || 0,
+        user.id,
+        id,
+      ],
     );
     await logActivity(this.db, user, 'update', resourceFor(kind), id, `updated withholding on ${nounFor(kind)} ${existing.invoice_no}`);
     return this.getDetail(kind, id);
   }
 
-  async addPayment(kind: Kind, id: number, body: any, user: AuthUser) {
-    const existing = await this.getInvoiceOrThrow(kind, id);
-    if (!canCompany(user, existing.party_id, 'edit')) throw new ForbiddenException('No access to this party');
-    const amount = Number(body.amount);
-    if (!body.date) throw new BadRequestException({ error: 'Please check the form', fields: { date: 'Required' } });
-    if (!amount || amount <= 0) throw new BadRequestException({ error: 'Please check the form', fields: { amount: 'Required' } });
-    await this.db.run(
-      'INSERT INTO payments (invoice_id, date, amount, method, reference) VALUES (?, ?, ?, ?, ?)',
-      [id, body.date, amount, body.method || null, body.reference || null],
-    );
-    await logActivity(this.db, user, 'update', resourceFor(kind), id, `recorded a ${amount} payment on ${existing.invoice_no}`);
-    return this.getDetail(kind, id);
-  }
-
-  /** Shared `DELETE /api/payments/:id` route — determines kind/party from the payment's invoice. */
-  async removePaymentShared(paymentId: number, user: AuthUser) {
-    const payment = await this.db.get<PaymentRowRaw>('SELECT * FROM payments WHERE id = ?', [paymentId]);
-    if (!payment) throw new NotFoundException('Payment not found');
-    const invoice = await this.db.get<InvoiceRowRaw>('SELECT * FROM invoices WHERE id = ?', [payment.invoice_id]);
-    if (!invoice) throw new NotFoundException('Payment not found');
-
-    const resource = resourceFor(invoice.kind);
-    const task = invoice.kind === 'P' ? 'record_payment_p' : undefined;
-    if (!can(user, resource, 'edit', task)) {
-      throw new ForbiddenException(`Missing ${resource}.edit${task ? `/${task}` : ''}`);
-    }
-    if (!canCompany(user, invoice.party_id, 'edit')) throw new ForbiddenException('No access to this party');
-
-    await this.db.run('DELETE FROM payments WHERE id = ?', [paymentId]);
-    await logActivity(this.db, user, 'delete', 'payments', paymentId, `deleted a ${payment.amount} payment on ${nounFor(invoice.kind)} ${invoice.invoice_no}`);
-    return this.getDetail(invoice.kind, invoice.id);
-  }
+  // Recording/removing a payment against an invoice (a 'credit_collection' CRV) is owned entirely
+  // by CrvService now — see crv.service.ts's create()/remove(). This module only ever reads
+  // `payments` (toDetail()'s read-only history, fetchPaidByInvoiceIds()).
 }

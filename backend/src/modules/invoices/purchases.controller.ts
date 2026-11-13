@@ -53,12 +53,6 @@ export class PurchasesController {
     return this.invoices.updateWithholding('P', Number(id), body, user);
   }
 
-  @Post(':id/payments')
-  @RequirePermission('purchases', 'edit', 'record_payment_p')
-  addPayment(@Param('id') id: string, @Body() body: any, @CurrentUser() user: AuthUser) {
-    return this.invoices.addPayment('P', Number(id), body, user);
-  }
-
   @Delete(':id')
   @HttpCode(204)
   @RequirePermission('purchases', 'delete')

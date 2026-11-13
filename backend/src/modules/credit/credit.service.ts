@@ -9,6 +9,7 @@ interface Rules {
   wh_rate: number;
   wh_goods_threshold: number;
   wh_service_threshold: number;
+  vat_wh_rate: number;
 }
 
 /** Aging bucket boundaries (days since invoice date), per README: 0-30, 31-60, 61-90, 90+. */
@@ -46,7 +47,7 @@ export class CreditService {
 
   private async getRules(): Promise<Rules> {
     const row = await this.db.get<Rules>(
-      'SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold FROM settings WHERE id = 1',
+      'SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold, vat_wh_rate FROM settings WHERE id = 1',
     );
     return row || DEFAULT_RULES;
   }

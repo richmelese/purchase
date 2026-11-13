@@ -9,7 +9,7 @@ import {
 } from '../../common/calc';
 import { FY_MONTHS, taxPeriod, type TaxPeriod } from '../../common/ethiopian';
 
-interface Rules { vat_rate: number; wh_rate: number; wh_goods_threshold: number; wh_service_threshold: number }
+interface Rules { vat_rate: number; wh_rate: number; wh_goods_threshold: number; wh_service_threshold: number; vat_wh_rate: number }
 
 interface InvoiceRow {
   id: number; kind: 'P' | 'S'; invoice_no: string; payment_type: string; vat_category: string;
@@ -59,7 +59,7 @@ export class ExportService {
   }
 
   private async rules(): Promise<Rules> {
-    const s = await this.db.get<Rules>('SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold FROM settings WHERE id = 1');
+    const s = await this.db.get<Rules>('SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold, vat_wh_rate FROM settings WHERE id = 1');
     return s || DEFAULT_RULES;
   }
 

@@ -238,4 +238,36 @@ CREATE TABLE IF NOT EXISTS activity_log (
   created_at TEXT NOT NULL DEFAULT ${NOW}
 );
 CREATE INDEX IF NOT EXISTS idx_activity_log_entity ON activity_log(entity, created_at);
+
+-- Migrations (idempotent ALTERs for columns/tables added after initial release — see
+-- backend/docs/IBCTMS_GAPS.md for what each of these backs).
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS wh_reason_note TEXT;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS vat_wh_applicable INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS vat_wh_paid DOUBLE PRECISION NOT NULL DEFAULT 0;
+
+ALTER TABLE parties ADD COLUMN IF NOT EXISTS merged_into_id INTEGER REFERENCES parties(id);
+
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS vat_wh_rate DOUBLE PRECISION NOT NULL DEFAULT 0.5;
+
+ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS before TEXT;
+ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS after TEXT;
+
+-- payments doubles as the "CRV" (Cash/Credit Receipt Voucher) register: every existing row is an
+-- invoice payment (category defaults to 'credit_collection'); standalone CRVs (loan, shareholder
+-- contribution, other/refund) have invoice_id = NULL and party_id set instead.
+ALTER TABLE payments ALTER COLUMN invoice_id DROP NOT NULL;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS crv_no INTEGER;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'credit_collection';
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS party_id INTEGER REFERENCES parties(id);
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS note TEXT;
+
+CREATE SEQUENCE IF NOT EXISTS payments_crv_no_seq;
+UPDATE payments SET crv_no = sub.rn
+  FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY id) AS rn FROM payments WHERE crv_no IS NULL) sub
+  WHERE payments.id = sub.id AND payments.crv_no IS NULL;
+SELECT setval('payments_crv_no_seq', COALESCE((SELECT MAX(crv_no) FROM payments), 0) + 1, false);
+ALTER TABLE payments ALTER COLUMN crv_no SET DEFAULT nextval('payments_crv_no_seq');
+ALTER TABLE payments ALTER COLUMN crv_no SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_crv_no ON payments(crv_no);
+CREATE INDEX IF NOT EXISTS idx_payments_party ON payments(party_id);
 `;

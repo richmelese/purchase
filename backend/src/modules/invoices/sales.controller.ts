@@ -53,12 +53,6 @@ export class SalesController {
     return this.invoices.updateWithholding('S', Number(id), body, user);
   }
 
-  @Post(':id/payments')
-  @RequirePermission('sales', 'edit')
-  addPayment(@Param('id') id: string, @Body() body: any, @CurrentUser() user: AuthUser) {
-    return this.invoices.addPayment('S', Number(id), body, user);
-  }
-
   @Delete(':id')
   @HttpCode(204)
   @RequirePermission('sales', 'delete')

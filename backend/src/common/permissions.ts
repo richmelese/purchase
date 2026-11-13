@@ -36,6 +36,12 @@ export const RESOURCES: ResourceDef[] = [
   ] },
   { id: 'withholding', name: 'Withholding', description: 'Withholding summary', tasks: [] },
   { id: 'credit', name: 'Credit & payments', description: 'Payables / receivables aging', tasks: [] },
+  // Standalone CRVs (loan / shareholder contribution / other refund — "Module 2: CRV Declaration").
+  // Credit-collection CRVs (money collected against a credit sale/purchase) stay gated by the
+  // existing 'purchases'/'sales' resource (see invoices.service.ts addPayment/removePaymentShared) —
+  // there's no generic 'payments' resource in this catalog to reuse, so a new flat resource is used
+  // here instead of making every admin configure a near-duplicate of purchases/sales access.
+  { id: 'crv', name: 'CRV (cash receipts)', description: 'Standalone cash receipt vouchers: loans, shareholder contributions, other refunds', tasks: [] },
   { id: 'inventory', name: 'Inventory', description: 'Stock in/out, issues', tasks: [] },
   { id: 'vat', name: 'VAT declaration', description: 'Monthly VAT declaration', tasks: [] },
   { id: 'parties', name: 'Supplier / customer list', description: 'Parties and their profiles', tasks: [] },

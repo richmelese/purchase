@@ -18,12 +18,13 @@ import { CreditModule } from './modules/credit/credit.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { VatModule } from './modules/vat/vat.module';
+import { CrvModule } from './modules/crv/crv.module';
 
 @Module({
   imports: [
     DatabaseModule, AuthModule, InventoryModule, UsersModule, RolesModule, AuditModule,
     InvoicesModule, SettingsModule, PartiesModule, PortalModule, ReconciliationModule, ExportModule,
-    WithholdingModule, CreditModule, DashboardModule, ReportsModule, VatModule,
+    WithholdingModule, CreditModule, DashboardModule, ReportsModule, VatModule, CrvModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: BffSecretGuard }],
 })

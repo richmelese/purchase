@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DatabaseService } from '../../db/database.service';
-import { DEFAULT_RULES, PURCHASE_TYPES, RawLine, SALES_TYPES, computeLine, round2 } from '../../common/calc';
+import { DEFAULT_RULES, PURCHASE_TYPES, RawLine, SALES_TYPES, computeLine, computeVatWithholding, round2 } from '../../common/calc';
 import { FY_MONTHS } from '../../common/ethiopian';
 
 interface Rules {
@@ -8,6 +8,7 @@ interface Rules {
   wh_rate: number;
   wh_goods_threshold: number;
   wh_service_threshold: number;
+  vat_wh_rate: number;
 }
 
 interface InvoiceRow {
@@ -15,6 +16,8 @@ interface InvoiceRow {
   kind: 'P' | 'S';
   fy: number;
   fy_month: number;
+  vat_wh_applicable: number;
+  vat_wh_paid: number;
 }
 
 interface LineRow extends RawLine {
@@ -63,8 +66,12 @@ const emptyMonths = () => new Array(12).fill(0);
  *                                  reverse-charge VAT is itself an output-tax item.
  *   145 Debit/credit notes      — added into line 170 (total input VAT), since credit notes from
  *                                  suppliers reduce (and debit notes increase) the input VAT credit.
- *   175 Government vouchers     — subtracted directly in the 185/190 formula, exactly as given by
- *                                  the contract text ("line 60 − (95 + 170 + 175 + 180)").
+ *   175 Government vouchers     — computed (sum of `computeVatWithholding().expected` for Sales
+ *                                  invoices with vat_wh_applicable, by fy_month) plus any manual
+ *                                  top-up/override entry, same combine pattern as 170/debitCredit;
+ *                                  the combined total is then subtracted directly in the 185/190
+ *                                  formula, exactly as given by the contract text
+ *                                  ("line 60 − (95 + 170 + 175 + 180)").
  *   180 Other credits/refunds   — same: subtracted directly in the 185/190 formula.
  * This keeps 175/180 literally matching the contract's own formula, while giving 140/145 a real
  * (documented) effect on the totals they most naturally belong to.
@@ -75,7 +82,7 @@ export class VatService {
 
   private async getRules(): Promise<Rules> {
     const row = await this.db.get<Rules>(
-      'SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold FROM settings WHERE id = 1',
+      'SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold, vat_wh_rate FROM settings WHERE id = 1',
     );
     return row || DEFAULT_RULES;
   }
@@ -92,11 +99,17 @@ export class VatService {
 
   async get(fy: number) {
     const rules = await this.getRules();
-    const invoices = await this.db.all<InvoiceRow>('SELECT id, kind, fy, fy_month FROM invoices WHERE fy = ?', [fy]);
+    const invoices = await this.db.all<InvoiceRow>(
+      'SELECT id, kind, fy, fy_month, vat_wh_applicable, vat_wh_paid FROM invoices WHERE fy = ?',
+      [fy],
+    );
 
     const valueLines: Record<number, number[]> = {};
     const ensure = (no: number) => (valueLines[no] ||= emptyMonths());
     for (const no of [5, 10, 15, 20, 65, 70, 75, 80, 85, 100, 105, 110, 115, 120, 125, 130]) ensure(no);
+
+    // Auto-computed government-voucher VAT credit (line 175): 50%-withholding agents on sales.
+    const autoVatWh = emptyMonths();
 
     if (invoices.length) {
       const ids = invoices.map((i) => i.id);
@@ -108,10 +121,12 @@ export class VatService {
       for (const inv of invoices) {
         const idx = inv.fy_month;
         const types = inv.kind === 'S' ? SALES_TYPES : PURCHASE_TYPES;
+        let invoiceVat = 0;
         for (const raw of linesByInvoice[inv.id] || []) {
+          const computed = computeLine(raw, rules);
+          invoiceVat = round2(invoiceVat + computed.vat_amount);
           const typeDef = types.find((t) => t.value === raw.tx_type);
           if (!typeDef) continue;
-          const computed = computeLine(raw, rules);
           const arr = ensure(typeDef.line);
           arr[idx] = round2(arr[idx] + computed.taxable_amount);
           if (typeDef.tt === 'Vatable') {
@@ -119,12 +134,19 @@ export class VatService {
             vatArr[idx] = round2(vatArr[idx] + computed.vat_amount);
           }
         }
+        if (inv.kind === 'S' && inv.vat_wh_applicable) {
+          const vatWh = computeVatWithholding(
+            { vat_amount: invoiceVat, vat_wh_applicable: inv.vat_wh_applicable, vat_wh_paid: inv.vat_wh_paid },
+            rules,
+          );
+          autoVatWh[idx] = round2(autoVatWh[idx] + vatWh.expected);
+        }
       }
     }
 
     const reverseTax = await this.manualValues(fy, 140);
     const debitCredit = await this.manualValues(fy, 145);
-    const govVoucher = await this.manualValues(fy, 175);
+    const manualGovVoucher = await this.manualValues(fy, 175);
     const otherCredits = await this.manualValues(fy, 180);
     const openingManual = await this.manualValues(fy, 195); // only fy_month 0 is meaningful
 
@@ -134,6 +156,7 @@ export class VatService {
     const line95 = emptyMonths();
     const line165 = emptyMonths();
     const line170 = emptyMonths();
+    const govVoucher = emptyMonths();
     const line185 = emptyMonths();
     const line190 = emptyMonths();
     const line195 = emptyMonths();
@@ -149,6 +172,9 @@ export class VatService {
         (valueLines[100][idx] || 0) + (valueLines[110][idx] || 0) + (valueLines[120][idx] || 0) + (valueLines[130][idx] || 0),
       );
       line170[idx] = round2((valueLines[105][idx] || 0) + (valueLines[115][idx] || 0) + (valueLines[125][idx] || 0) + debitCredit[idx]);
+
+      // Government voucher VAT credit: auto-summed 50%-withholding on sales plus any manual entry.
+      govVoucher[idx] = round2(autoVatWh[idx] + manualGovVoucher[idx]);
 
       // Contract formula (verbatim): line 185/190 = line60 − (95 + 170 + 175 + 180).
       const grossNet = round2(line60[idx] - (line95[idx] + line170[idx] + govVoucher[idx] + otherCredits[idx]));

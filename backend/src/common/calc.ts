@@ -6,6 +6,7 @@ export const DEFAULT_RULES = {
   wh_rate: 0.03,
   wh_goods_threshold: 20000,
   wh_service_threshold: 10000,
+  vat_wh_rate: 0.5,
 };
 
 export const PAYMENT_TYPES = ['Cash', 'Credit'];
@@ -36,7 +37,9 @@ export function receiptNumberError(receiptType: string, receiptNo: string | unde
   return null;
 }
 export const REPORT_STATUSES = ['Not Reported', 'Reported'];
-export const WH_RECEIPT_TYPES = ['With Receipt', 'Without Receipt', 'Government', 'Exempt'];
+/** Doubles as "reason withholding wasn't applied" when status isn't 'With Receipt': Government and
+ * Exempt are specific known reasons, 'Other' pairs with the invoice's free-text `wh_reason_note`. */
+export const WH_RECEIPT_TYPES = ['With Receipt', 'Without Receipt', 'Government', 'Exempt', 'Other'];
 
 export const PURCHASE_TYPES = [
   { value: 1, label: 'Local Purchase Capital Asset', line: 65, tt: 'Vatable' },
@@ -164,4 +167,33 @@ export function computeWithholding(inv: WithholdingInput, rules = DEFAULT_RULES)
     status, applicable, base: wh_base, expected, paid,
     outstanding: round2(expected - paid),
   };
+}
+
+export interface VatWithholdingInput {
+  vat_amount?: unknown;
+  vat_wh_applicable?: unknown;
+  vat_wh_paid?: unknown;
+}
+
+export interface VatWithholdingResult {
+  applicable: boolean;
+  expected: number;
+  paid: number;
+  outstanding: number;
+}
+
+/**
+ * VAT withholding by appointed agents (e.g. government bodies): when the counterparty on a SALE
+ * withholds VAT instead of paying it in cash, they remit `vat_wh_rate` (50% by default) of the
+ * line VAT directly to the tax authority on the seller's behalf. This is independent of, and can
+ * coexist with, the 3% income-tax `computeWithholding()` above — one is withheld by this business
+ * on what it pays suppliers, the other is withheld by a counterparty on what they owe this
+ * business. Feeds VAT declaration line 175 ("Government voucher VAT credit").
+ */
+export function computeVatWithholding(inv: VatWithholdingInput, rules: Pick<typeof DEFAULT_RULES, 'vat_wh_rate'> = DEFAULT_RULES): VatWithholdingResult {
+  const applicable = !!inv.vat_wh_applicable;
+  const vat = num(inv.vat_amount);
+  const expected = applicable ? round2(vat * (rules.vat_wh_rate ?? DEFAULT_RULES.vat_wh_rate)) : 0;
+  const paid = num(inv.vat_wh_paid);
+  return { applicable, expected, paid, outstanding: round2(expected - paid) };
 }

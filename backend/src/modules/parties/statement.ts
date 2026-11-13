@@ -9,13 +9,14 @@ export interface SettingsRules {
   wh_rate: number;
   wh_goods_threshold: number;
   wh_service_threshold: number;
+  vat_wh_rate: number;
 }
 
-const DEFAULT_RULES: SettingsRules = { vat_rate: 0.15, wh_rate: 0.03, wh_goods_threshold: 20000, wh_service_threshold: 10000 };
+const DEFAULT_RULES: SettingsRules = { vat_rate: 0.15, wh_rate: 0.03, wh_goods_threshold: 20000, wh_service_threshold: 10000, vat_wh_rate: 0.5 };
 
 export async function loadRules(db: DatabaseService): Promise<SettingsRules> {
   const row = await db.get<SettingsRules>(
-    'SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold FROM settings WHERE id = 1',
+    'SELECT vat_rate, wh_rate, wh_goods_threshold, wh_service_threshold, vat_wh_rate FROM settings WHERE id = 1',
   );
   return row || DEFAULT_RULES;
 }

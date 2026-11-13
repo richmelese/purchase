@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../../common/auth.guard';
 import { RequirePermission } from '../../common/require-permission.decorator';
 import { ReportsService } from './reports.service';
@@ -27,5 +27,12 @@ export class ReportsController {
   @Get('parties/sales')
   partiesSales(@Query('fy') fy: string, @Query('month') month?: string) {
     return this.service.parties('S', Number(fy), month);
+  }
+
+  @Get('unreported')
+  unreported(@Query('kind') kind: string, @Query('fy') fy?: string, @Query('month') month?: string) {
+    if (kind !== 'P' && kind !== 'S') throw new BadRequestException({ error: 'Please check the form', fields: { kind: 'Must be P or S' } });
+    const hasFy = fy !== undefined && fy !== '';
+    return this.service.unreported(kind, hasFy ? Number(fy) : undefined, month);
   }
 }
