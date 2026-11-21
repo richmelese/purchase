@@ -1,7 +1,8 @@
 'use client';
 
-import { money, qty, date, ecDate, amountInWords } from '@/lib/format';
+import { money, qty, date, otherDate, dateTime, amountInWords } from '@/lib/format';
 import { FY_MONTHS } from '@/lib/shared/ethiopian';
+import { useT } from '@/lib/i18n';
 import type { InvoiceDetail } from '@/lib/types';
 import { useFetch } from './ui';
 import { useLookups } from './lookups';
@@ -17,31 +18,37 @@ export interface PrintInvoiceIssuer {
  * A4 document shown only when printing (Sales invoice / Purchase voucher).
  * `issuer` (letterhead: company_name, company_tin, company_address, wh_rate) skips loading /settings,
  * e.g. in the company portal.
+ * Follows the chosen UI language; the amount in words (lib/format amountInWords) is English only.
  */
 export default function PrintInvoice({ inv, issuer }: { inv: InvoiceDetail; issuer?: PrintInvoiceIssuer }) {
   const { data: fetched } = useFetch<PrintInvoiceIssuer>(issuer ? null : '/settings');
+  const { t, lang } = useT();
   const s = issuer || fetched;
   const lk = useLookups();
   const isSale = inv.kind === 'S';
-  const title = isSale ? 'SALES INVOICE' : 'PURCHASE VOUCHER';
-  const partyWord = isSale ? 'Customer' : 'Supplier';
+  const title = isSale ? t('SALES INVOICE') : t('PURCHASE VOUCHER');
+  const partyWord = isSale ? t('Customer') : t('Supplier');
+  const signs: [string, unknown?][] = [
+    [t('Prepared by'), inv.created_by], [t('Checked by')], [t('Approved by')],
+    [isSale ? t('Received by (customer)') : t('Received by (store)')],
+  ];
 
   return (
     <div className="print-doc" aria-hidden="true">
       <header className="pd-head">
         <div>
           <div className="pd-company">{s?.company_name}</div>
-          {s?.company_tin && <div>TIN: {s.company_tin}</div>}
+          {s?.company_tin && <div>{t('TIN')}: {s.company_tin}</div>}
           {s?.company_address && <div>{s.company_address}</div>}
         </div>
         <div className="pd-title-box">
           <div className="pd-title">{title}</div>
           <table className="pd-meta">
             <tbody>
-              <tr><th>No.</th><td>{inv.invoice_no}</td></tr>
-              <tr><th>Date</th><td>{date(inv.date)}</td></tr>
-              <tr><th>E.C. date</th><td>{ecDate(inv.date)}</td></tr>
-              <tr><th>Tax month</th><td>{FY_MONTHS[inv.fy_month]} · FY {inv.fy}</td></tr>
+              <tr><th>{t('No.')}</th><td>{inv.invoice_no}</td></tr>
+              <tr><th>{t('Date')}</th><td>{date(inv.date)}</td></tr>
+              <tr><th>{t(lang === 'am' ? 'GC date' : 'E.C. date')}</th><td>{otherDate(inv.date)}</td></tr>
+              <tr><th>{t('Tax month')}</th><td>{t(FY_MONTHS[inv.fy_month])} · {t('FY {fy}', { fy: inv.fy })}</td></tr>
             </tbody>
           </table>
         </div>
@@ -51,22 +58,22 @@ export default function PrintInvoice({ inv, issuer }: { inv: InvoiceDetail; issu
         <div>
           <div className="pd-label">{partyWord}</div>
           <div className="pd-strong">{inv.party_name || '—'}</div>
-          <div>TIN: {inv.party_tin || '—'}</div>
+          <div>{t('TIN')}: {inv.party_tin || '—'}</div>
         </div>
         <div>
-          <div className="pd-label">Receipt</div>
-          <div>{inv.receipt_type}{inv.mrc_number ? ` · MRC ${inv.mrc_number}` : ''}</div>
-          <div>Receipt no: {inv.vat_receipt_no}</div>
-          <div>Payment: {inv.payment_type} · {inv.vat_category === 'G' ? 'Goods' : 'Service'}</div>
+          <div className="pd-label">{t('Receipt')}</div>
+          <div>{t(inv.receipt_type)}{inv.mrc_number ? ` · MRC ${inv.mrc_number}` : ''}</div>
+          <div>{t('Receipt no')}: {inv.vat_receipt_no}</div>
+          <div>{t('Payment')}: {t(inv.payment_type)} · {inv.vat_category === 'G' ? t('Goods') : t('Service')}</div>
         </div>
       </section>
 
       <table className="pd-items">
         <thead>
           <tr>
-            <th>#</th><th>Code</th><th>Item name</th><th>Unit</th>
-            <th className="num">Qty</th><th className="num">Unit price</th><th className="num">Total price</th>
-            <th className="num">Excise</th><th className="num">VAT</th><th className="num">Total</th>
+            <th>#</th><th>{t('Code')}</th><th>{t('Item name')}</th><th>{t('Unit')}</th>
+            <th className="num">{t('Qty')}</th><th className="num">{t('Unit price')}</th><th className="num">{t('Total price')}</th>
+            <th className="num">{t('Excise')}</th><th className="num">{t('VAT')}</th><th className="num">{t('Total')}</th>
           </tr>
         </thead>
         <tbody>
@@ -89,43 +96,48 @@ export default function PrintInvoice({ inv, issuer }: { inv: InvoiceDetail; issu
 
       <section className="pd-bottom">
         <div className="pd-words">
-          <div className="pd-label">Amount in words</div>
+          <div className="pd-label">{t('Amount in words')}</div>
           <div className="pd-strong">{amountInWords(inv.grand_total)}</div>
           {inv.wh.applicable && (
             <div className="pd-wh">
               {inv.wh.expected > 0
-                ? <>Withholding tax ({inv.wh.status}): {money(inv.wh.expected)} on {money(inv.wh.base)}{inv.wh_receipt_no ? ` · WH receipt ${inv.wh_receipt_no}` : ''}</>
-                : <>Subject to {Math.round((+(s?.wh_rate ?? 0) || 0.03) * 1000) / 10}% withholding tax ({inv.wh.status}) on {money(inv.wh.base)}.</>}
+                ? <>
+                    {t('Withholding tax ({status}): {amount} on {base}', { status: t(inv.wh.status), amount: money(inv.wh.expected), base: money(inv.wh.base) })}
+                    {inv.wh_receipt_no ? ` · ${t('WH receipt {no}', { no: inv.wh_receipt_no })}` : ''}
+                  </>
+                : t('Subject to {rate}% withholding tax ({status}) on {base}.', {
+                  rate: Math.round((+(s?.wh_rate ?? 0) || 0.03) * 1000) / 10, status: t(inv.wh.status), base: money(inv.wh.base),
+                })}
             </div>
           )}
-          {inv.notes && <div className="pd-notes">Remark: {inv.notes}</div>}
+          {inv.notes && <div className="pd-notes">{t('Remark')}: {inv.notes}</div>}
         </div>
         <table className="pd-totals">
           <tbody>
-            <tr><th>Total price</th><td>{money(inv.total_amount)}</td></tr>
-            {inv.excise_amount > 0 && <tr><th>Excise tax</th><td>{money(inv.excise_amount)}</td></tr>}
-            {inv.vatable_service_fee > 0 && <tr><th>Other vatable service fee</th><td>{money(inv.vatable_service_fee)}</td></tr>}
-            <tr><th>VAT base</th><td>{money(inv.taxable_amount)}</td></tr>
-            <tr><th>VAT</th><td>{money(inv.vat_amount)}</td></tr>
-            {inv.non_vatable_fee > 0 && <tr><th>Other non-vatable fee</th><td>{money(inv.non_vatable_fee)}</td></tr>}
-            <tr className="pd-grand"><th>Total (ETB)</th><td>{money(inv.grand_total)}</td></tr>
-            {inv.payment_type === 'Credit' && <tr><th>Balance due</th><td>{money(inv.balance)}</td></tr>}
+            <tr><th>{t('Total price')}</th><td>{money(inv.total_amount)}</td></tr>
+            {inv.excise_amount > 0 && <tr><th>{t('Excise tax')}</th><td>{money(inv.excise_amount)}</td></tr>}
+            {inv.vatable_service_fee > 0 && <tr><th>{t('Other vatable service fee')}</th><td>{money(inv.vatable_service_fee)}</td></tr>}
+            <tr><th>{t('VAT base')}</th><td>{money(inv.taxable_amount)}</td></tr>
+            <tr><th>{t('VAT')}</th><td>{money(inv.vat_amount)}</td></tr>
+            {inv.non_vatable_fee > 0 && <tr><th>{t('Other non-vatable fee')}</th><td>{money(inv.non_vatable_fee)}</td></tr>}
+            <tr className="pd-grand"><th>{t('Total (ETB)')}</th><td>{money(inv.grand_total)}</td></tr>
+            {inv.payment_type === 'Credit' && <tr><th>{t('Balance due')}</th><td>{money(inv.balance)}</td></tr>}
           </tbody>
         </table>
       </section>
 
       <section className="pd-signs">
-        {([['Prepared by', inv.created_by], ['Checked by'], ['Approved by'], [isSale ? 'Received by (customer)' : 'Received by (store)']] as [string, unknown?][]).map(([label, name]) => (
+        {signs.map(([label, name]) => (
           <div key={label}>
             <div className="pd-sign-name">{name ? String(name) : ''}</div>
             <div className="pd-sign-line">{label}</div>
-            <div className="pd-sign-sub">Signature &amp; date</div>
+            <div className="pd-sign-sub">{t('Signature & date')}</div>
           </div>
         ))}
       </section>
 
       <footer className="pd-foot">
-        Printed {new Date().toLocaleString()} · {s?.company_name} · {inv.report_status}
+        {t('Printed {when}', { when: dateTime(new Date()) })} · {s?.company_name} · {t(inv.report_status)}
       </footer>
     </div>
   );

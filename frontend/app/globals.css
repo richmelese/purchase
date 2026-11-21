@@ -27,7 +27,7 @@
   --shadow-lg: 0 10px 30px rgba(20, 26, 51, .12);
   --sidebar: 248px;
   --focus: 0 0 0 3px rgba(59, 71, 214, .16);
-  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  font-family: "Segoe UI Variable Text", "Segoe UI", "Ebrima", "Nyala", "Noto Sans Ethiopic", system-ui, -apple-system, Roboto, sans-serif;
   color: var(--text);
   background: var(--bg);
 }
@@ -921,3 +921,11 @@ input[aria-invalid="true"] { border-color: var(--bad); }
 .company-rights th.center, .company-rights td.center { text-align: center; width: 76px; }
 .company-rights td { padding: 8px 10px; }
 .company-rights input:disabled { opacity: .55; }
+
+/* ---- language switch (EN | አማ) ---- */
+.lang-switch { display: inline-flex; border: 1px solid var(--border, #dfe3ee); border-radius: 999px; overflow: hidden; background: var(--card, #fff); }
+.lang-switch button { border: 0; background: transparent; padding: 4px 10px; font: inherit; font-size: 12px; font-weight: 600; color: var(--muted, #6b7280); cursor: pointer; min-width: 38px; }
+.lang-switch button.active { background: var(--brand-soft, #eef0ff); color: var(--brand-2, #3b47d6); }
+.lang-switch button:focus-visible { outline: none; box-shadow: var(--focus); }
+/* Ethiopic script needs a touch more line height to stay legible */
+html[lang="am"] body { line-height: 1.6; }

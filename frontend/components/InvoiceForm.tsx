@@ -2,14 +2,17 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api } from '@/lib/api';
+import { api, translateMessage } from '@/lib/api';
+import { getLang, useT } from '@/lib/i18n';
 import {
   computeLine, computeTotals, computeWithholding, typesFor,
   PURCHASE_TAX_TYPES, RECEIPT_PREFIX, receiptNumberError,
 } from '@/lib/shared/calc';
-import { EC_MONTHS, toEthiopian, toGregorian, taxPeriod, formatEthiopian } from '@/lib/shared/ethiopian';
-import { money, qty as fmtQty, today } from '@/lib/format';
-import { Card, Field, Select, PageHeader, Loading, useFetch, useToast, Badge } from './ui';
+import { taxPeriod, formatEthiopian } from '@/lib/shared/ethiopian';
+import { money, qty as fmtQty, today, gcDate } from '@/lib/format';
+import { Card, Field, Select, PageHeader, Loading, useFetch, useToast } from './ui';
+import TBadge from './TBadge';
+import { EthiopianDateInput } from './DateInput';
 import { useLookups } from './lookups';
 import type { Party, Product } from '@/lib/types';
 
@@ -50,39 +53,18 @@ const blankLine = (kind: 'P' | 'S'): LineForm => ({
 });
 
 const blankHeader = (): HeaderForm => ({
-  invoice_no: '', payment_type: 'Cash', vat_category: 'G', calendar_type: 'G',
+  invoice_no: '', payment_type: 'Cash', vat_category: 'G', calendar_type: getLang() === 'am' ? 'E' : 'G',
   party_tin: '', party_name: '', date: today(), receipt_type: 'MRC', mrc_number: '',
   vat_receipt_no: RECEIPT_PREFIX.MRC, report_status: 'Not Reported', notes: '',
   vat_wh_applicable: false,
 });
 
-function EthiopianDateInput({ value, onChange, invalid }: { value: string; onChange: (v: string) => void; invalid?: boolean }) {
-  const ec = toEthiopian(value) || { year: '' as any, month: 1, day: 1 };
-  const [parts, setParts] = useState(ec);
-  useEffect(() => { setParts(toEthiopian(value) || parts); }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
-  const update = (p: Partial<typeof parts>) => {
-    const next = { ...parts, ...p };
-    setParts(next);
-    const g = toGregorian(next.year, next.month, next.day);
-    if (g) onChange(g);
-  };
-  return (
-    <div className="row" style={{ flexWrap: 'nowrap', gap: 6 }}>
-      <input type="number" min="1" max="30" value={parts.day} onChange={(e) => update({ day: +e.target.value })} style={{ width: 64 }} aria-label="EC day" className={invalid ? 'invalid' : ''} />
-      <select value={parts.month} onChange={(e) => update({ month: +e.target.value })} aria-label="EC month">
-        {EC_MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-      </select>
-      <input type="number" min="1900" max="2200" value={parts.year} onChange={(e) => update({ year: +e.target.value as any })} style={{ width: 84 }} aria-label="EC year" />
-    </div>
-  );
-}
-
 export default function InvoiceForm({ kind, id }: { kind: 'P' | 'S'; id?: string | number }) {
   const router = useRouter();
   const toast = useToast();
+  const { t } = useT();
   const isSale = kind === 'S';
   const base = isSale ? '/sales' : '/purchases';
-  const partyWord = isSale ? 'Buyer' : 'Seller';
 
   const { data: settings } = useFetch<{ rules: { vat_rate: number; wh_rate: number; wh_goods_threshold: number; wh_service_threshold: number } }>('/settings');
   const { data: parties } = useFetch<Party[]>(`/parties?type=${isSale ? 'Customer' : 'Supplier'}`);
@@ -128,8 +110,11 @@ export default function InvoiceForm({ kind, id }: { kind: 'P' | 'S'; id?: string
   const taxTypeOptions = (current: string) => lk.options('transaction_type')
     .filter((o) => (isSale ? o.value !== 'Non-Vatable' : PURCHASE_TAX_TYPES.includes(o.value) || o.value === current));
   const prefix = RECEIPT_PREFIX[h.receipt_type] || '';
-  const receiptHint = prefix ? `${h.receipt_type} receipts start with "${prefix}"` : '';
-  const receiptLive = h.vat_receipt_no && h.vat_receipt_no.length > prefix.length ? receiptNumberError(h.receipt_type, h.vat_receipt_no) : null;
+  const receiptHint = prefix ? t('{type} receipts start with "{prefix}"', { type: t(h.receipt_type), prefix }) : '';
+  const receiptLiveRaw = h.vat_receipt_no && h.vat_receipt_no.length > prefix.length ? receiptNumberError(h.receipt_type, h.vat_receipt_no) : null;
+  const receiptLive = receiptLiveRaw ? translateMessage(receiptLiveRaw) : null;
+  // Field errors from the server arrive in English; show them in the chosen language.
+  const fe = (v: unknown) => (v ? translateMessage(v) : undefined);
 
   const setHeader = (k: keyof HeaderForm) => (v: any) => {
     setH((x) => {
@@ -189,7 +174,7 @@ export default function InvoiceForm({ kind, id }: { kind: 'P' | 'S'; id?: string
     try {
       const body = { ...h, lines };
       const inv = id ? await api.put<any>(`${base}/${id}`, body) : await api.post<any>(base, body);
-      toast(`${isSale ? 'Sale' : 'Purchase'} ${inv.invoice_no} saved`);
+      toast(isSale ? t('Sale {no} saved', { no: inv.invoice_no }) : t('Purchase {no} saved', { no: inv.invoice_no }));
       if (andNew) {
         setH({ ...blankHeader(), date: h.date, payment_type: h.payment_type, vat_category: h.vat_category });
         setLines([blankLine(kind)]);
@@ -217,79 +202,81 @@ export default function InvoiceForm({ kind, id }: { kind: 'P' | 'S'; id?: string
   return (
     <>
       <PageHeader
-        title={id ? `Edit ${isSale ? 'sale' : 'purchase'} ${h.invoice_no}` : `New ${isSale ? 'sale' : 'purchase'}`}
-        subtitle={isSale ? 'Record a sales invoice / receipt issued to a buyer' : 'Record a purchase receipt from a seller'}
+        title={id
+          ? (isSale ? t('Edit sale {no}', { no: h.invoice_no }) : t('Edit purchase {no}', { no: h.invoice_no }))
+          : (isSale ? t('New sale') : t('New purchase'))}
+        subtitle={isSale ? t('Record a sales invoice / receipt issued to a buyer') : t('Record a purchase receipt from a seller')}
       >
-        <button className="btn" onClick={() => router.back()}>Cancel</button>
-        {!id && <button className="btn" disabled={saving} onClick={() => save(true)}>Save &amp; new</button>}
-        <button className="btn btn-primary" disabled={saving} onClick={() => save(false)}>{saving ? 'Saving…' : 'Save'}</button>
+        <button className="btn" onClick={() => router.back()}>{t('Cancel')}</button>
+        {!id && <button className="btn" disabled={saving} onClick={() => save(true)}>{t('Save & new')}</button>}
+        <button className="btn btn-primary" disabled={saving} onClick={() => save(false)}>{saving ? t('Saving…') : t('Save')}</button>
       </PageHeader>
 
-      {formError && <div className="alert alert-error">{formError}{errors.lines ? ` — ${errors.lines}` : ''}</div>}
+      {formError && <div className="alert alert-error">{formError}</div>}
 
-      <Card title="Receipt details">
+      <Card title={t('Receipt details')}>
         <div className="form-grid">
-          <Field label={`${isSale ? 'Sales' : 'Purchase'} ID`} error={errors.invoice_no} hint="Assigned automatically; editable">
+          <Field label={isSale ? t('Sales ID') : t('Purchase ID')} error={fe(errors.invoice_no)} hint={t('Assigned automatically; editable')}>
             <input value={h.invoice_no} onChange={(e) => setHeader('invoice_no')(e.target.value)} className={cls(errors.invoice_no)} />
           </Field>
-          <Field label="Payment type" required error={errors.payment_type}>
+          <Field label={t('Payment type')} required error={fe(errors.payment_type)}>
             <Select options={lk.options('payment_type')} value={h.payment_type} onChange={setHeader('payment_type')} />
           </Field>
-          <Field label="Product type" required error={errors.vat_category} hint="Goods or service (sets the withholding threshold)">
+          <Field label={t('Product type')} required error={fe(errors.vat_category)} hint={t('Goods or service (sets the withholding threshold)')}>
             <Select options={lk.options('vat_category')} value={h.vat_category} onChange={setHeader('vat_category')} />
           </Field>
-          <Field label="Declaration status">
+          <Field label={t('Declaration status')}>
             <Select options={lk.options('report_status')} value={h.report_status} onChange={setHeader('report_status')} />
           </Field>
           {isSale && (
-            <Field label="VAT withholding">
+            <Field label={t('VAT withholding')}>
               <label className="row" style={{ alignItems: 'center', gap: 6 }}>
                 <input type="checkbox" checked={!!h.vat_wh_applicable} onChange={(e) => setHeader('vat_wh_applicable')(e.target.checked)} />
-                <span>Customer will withhold VAT (50%, e.g. government buyer)</span>
+                <span>{t('Customer will withhold VAT (50%, e.g. government buyer)')}</span>
               </label>
             </Field>
           )}
 
-          <Field label={`${partyWord} TIN`} error={errors.party_tin} hint={party ? `Registered: ${party.name}` : h.party_tin ? 'New TIN – will be registered' : 'Optional (if no TIN, or imported)'}>
-            <input list="party-tins" value={h.party_tin} inputMode="numeric" onChange={(e) => setHeader('party_tin')(e.target.value.trim())} className={cls(errors.party_tin)} placeholder="e.g. 0000030603" />
+          <Field label={isSale ? t('Buyer TIN') : t('Seller TIN')} error={fe(errors.party_tin)} hint={party ? t('Registered: {name}', { name: party.name }) : h.party_tin ? t('New TIN – will be registered') : t('Optional (if no TIN, or imported)')}>
+            <input list="party-tins" value={h.party_tin} inputMode="numeric" onChange={(e) => setHeader('party_tin')(e.target.value.trim())} className={cls(errors.party_tin)} placeholder={t('e.g. {example}', { example: '0000030603' })} />
             <datalist id="party-tins">
               {(parties || []).filter((p) => p.tin).map((p) => <option key={p.id} value={p.tin!}>{p.name}</option>)}
             </datalist>
           </Field>
-          <Field label={`${partyWord} name`} error={errors.party_name} className="span-2">
+          <Field label={isSale ? t('Buyer name') : t('Seller name')} error={fe(errors.party_name)} className="span-2">
             <input value={h.party_name} onChange={(e) => setHeader('party_name')(e.target.value)} readOnly={!!party} className={cls(errors.party_name)} />
           </Field>
-          <Field label="Calendar type" required>
+          <Field label={t('Calendar type')} required>
             <Select options={lk.options('calendar_type')} value={h.calendar_type} onChange={setHeader('calendar_type')} />
           </Field>
 
-          <Field label={`Date of ${isSale ? 'sale' : 'purchase'}`} required error={errors.date}
-            hint={period ? `${h.calendar_type === 'E' ? h.date : formatEthiopian(h.date)} · Tax month: ${period.month}` : ''}>
+          <Field label={isSale ? t('Date of sale') : t('Date of purchase')} required error={fe(errors.date)}
+            hint={period ? `${h.calendar_type === 'E' ? `${gcDate(h.date)} ${t('GC')}` : `${formatEthiopian(h.date)} ${t('E.C.')}`} · ${t('Tax month')}: ${t(period.month)}` : ''}>
             {h.calendar_type === 'E'
               ? <EthiopianDateInput value={h.date} onChange={setHeader('date')} invalid={!!errors.date} />
               : <input type="date" value={h.date} onChange={(e) => setHeader('date')(e.target.value)} className={cls(errors.date)} />}
           </Field>
-          <Field label="Receipt type" required error={errors.receipt_type}>
+          <Field label={t('Receipt type')} required error={fe(errors.receipt_type)}>
             <Select options={lk.options('receipt_type')} value={h.receipt_type} onChange={setHeader('receipt_type')} />
           </Field>
-          <Field label="MRC number" required={h.receipt_type === 'MRC'} error={errors.mrc_number}>
+          <Field label={t('MRC number')} required={h.receipt_type === 'MRC'} error={fe(errors.mrc_number)}>
             <input list="party-mrcs" value={h.mrc_number} onChange={(e) => setHeader('mrc_number')(e.target.value)} disabled={h.receipt_type !== 'MRC'} className={cls(errors.mrc_number)} />
             <datalist id="party-mrcs">
               {party && [party.mrc1, party.mrc2, party.mrc3].filter(Boolean).map((m) => <option key={m} value={m!} />)}
             </datalist>
           </Field>
-          <Field label="Receipt no." required error={errors.vat_receipt_no || receiptLive} hint={receiptHint}>
+          <Field label={t('Receipt no.')} required error={fe(errors.vat_receipt_no) || receiptLive} hint={receiptHint}>
             <input value={h.vat_receipt_no} onChange={(e) => setHeader('vat_receipt_no')(e.target.value)} className={cls(errors.vat_receipt_no || receiptLive)} placeholder={prefix ? `${prefix}…` : ''} />
           </Field>
-          <Field label="Remark" className="span-4">
-            <input value={h.notes} onChange={(e) => setHeader('notes')(e.target.value)} placeholder="Notes or clarifications (optional)" />
+          <Field label={t('Remark')} className="span-4">
+            <input value={h.notes} onChange={(e) => setHeader('notes')(e.target.value)} placeholder={t('Notes or clarifications (optional)')} />
           </Field>
         </div>
       </Card>
 
       <Card
         className="mt"
-        title="Item details & price calculation"
+        title={t('Item details & price calculation')}
         actions={<span className="small muted">B = A × Qty · D = B × C · F = (B + D + E) × {Math.round(rules.vat_rate * 100)}% · H = B + D + E + F + G</span>}
         bodyClass=""
       >
@@ -298,21 +285,21 @@ export default function InvoiceForm({ kind, id }: { kind: 'P' | 'S'; id?: string
             <thead>
               <tr>
                 <th>#</th>
-                <th style={{ minWidth: 120 }}>Product code</th>
-                <th style={{ minWidth: 200 }}>Item name</th>
-                <th style={{ minWidth: 124 }}>Measurement<span className="req">*</span></th>
-                <th style={{ minWidth: 250 }}>{isSale ? 'Type of sales' : 'Input category'}</th>
-                <th style={{ minWidth: 140 }}>Tax type</th>
-                <th className="num" style={{ minWidth: 72 }}>Qty</th>
-                <th className="num" style={{ minWidth: 104 }}>Unit price<br /><span className="col-letter">A</span></th>
-                <th className="num">Total price<br /><span className="col-letter">B</span></th>
-                <th className="num" style={{ minWidth: 76 }}>Excise %<br /><span className="col-letter">C</span></th>
-                <th className="num">Excise amt<br /><span className="col-letter">D</span></th>
-                <th className="num" style={{ minWidth: 96 }}>Other vatable fee<br /><span className="col-letter">E</span></th>
-                <th className="num">VAT<br /><span className="col-letter">F</span></th>
-                <th className="num" style={{ minWidth: 96 }}>Other non-vatable fee<br /><span className="col-letter">G</span></th>
-                <th className="num">Total price<br /><span className="col-letter">H</span></th>
-                <th aria-label="Remove" />
+                <th style={{ minWidth: 120 }}>{t('Product code')}</th>
+                <th style={{ minWidth: 200 }}>{t('Item name')}</th>
+                <th style={{ minWidth: 124 }}>{t('Measurement')}<span className="req">*</span></th>
+                <th style={{ minWidth: 250 }}>{isSale ? t('Type of sales') : t('Input category')}</th>
+                <th style={{ minWidth: 140 }}>{t('Tax type')}</th>
+                <th className="num" style={{ minWidth: 72 }}>{t('Qty')}</th>
+                <th className="num" style={{ minWidth: 104 }}>{t('Unit price')}<br /><span className="col-letter">A</span></th>
+                <th className="num">{t('Total price')}<br /><span className="col-letter">B</span></th>
+                <th className="num" style={{ minWidth: 76 }}>{t('Excise %')}<br /><span className="col-letter">C</span></th>
+                <th className="num">{t('Excise amt')}<br /><span className="col-letter">D</span></th>
+                <th className="num" style={{ minWidth: 96 }}>{t('Other vatable fee')}<br /><span className="col-letter">E</span></th>
+                <th className="num">{t('VAT')}<br /><span className="col-letter">F</span></th>
+                <th className="num" style={{ minWidth: 96 }}>{t('Other non-vatable fee')}<br /><span className="col-letter">G</span></th>
+                <th className="num">{t('Total price')}<br /><span className="col-letter">H</span></th>
+                <th aria-label={t('Remove')} />
               </tr>
             </thead>
             <tbody>
@@ -327,10 +314,10 @@ export default function InvoiceForm({ kind, id }: { kind: 'P' | 'S'; id?: string
                     </td>
                     <td>
                       <input value={lines[i].description} onChange={(e) => setLine(i, 'description', e.target.value)} className={cls(lineErr(i, 'description'))} />
-                      {p?.track_stock ? <div className={`small ${stockWarn ? '' : 'muted'}`} style={stockWarn ? { color: 'var(--bad)' } : undefined}>In stock: {fmtQty(p.current_stock)}{stockWarn ? ' – insufficient' : ''}</div> : null}
+                      {p?.track_stock ? <div className={`small ${stockWarn ? '' : 'muted'}`} style={stockWarn ? { color: 'var(--bad)' } : undefined}>{stockWarn ? t('In stock: {qty} – insufficient', { qty: fmtQty(p.current_stock) }) : t('In stock: {qty}', { qty: fmtQty(p.current_stock) })}</div> : null}
                     </td>
                     <td>
-                      <Select options={lk.options('unit')} value={lines[i].unit} onChange={(v) => setLine(i, 'unit', +v)} placeholder="Select UM" className={cls(lineErr(i, 'unit'))} />
+                      <Select options={lk.options('unit')} value={lines[i].unit} onChange={(v) => setLine(i, 'unit', +v)} placeholder={t('Select UM')} className={cls(lineErr(i, 'unit'))} />
                     </td>
                     <td>
                       <Select options={typeOptions} value={lines[i].tx_type} onChange={(v) => setLine(i, 'tx_type', +v)} className={cls(lineErr(i, 'tx_type'))} />
@@ -341,14 +328,14 @@ export default function InvoiceForm({ kind, id }: { kind: 'P' | 'S'; id?: string
                     <td><input type="number" step="any" min="0" value={lines[i].qty} onChange={(e) => setLine(i, 'qty', e.target.value)} className={cls(lineErr(i, 'qty'))} /></td>
                     <td><input type="number" step="any" min="0" value={lines[i].unit_price} onChange={(e) => setLine(i, 'unit_price', e.target.value)} className={cls(lineErr(i, 'unit_price'))} /></td>
                     <td className="num">{money(l.total)}</td>
-                    <td><input type="number" step="any" min="0" value={lines[i].excise_rate} onChange={(e) => setLine(i, 'excise_rate', e.target.value)} placeholder="0" className={cls(lineErr(i, 'excise_rate'))} title={lineErr(i, 'excise_rate') || undefined} /></td>
+                    <td><input type="number" step="any" min="0" value={lines[i].excise_rate} onChange={(e) => setLine(i, 'excise_rate', e.target.value)} placeholder="0" className={cls(lineErr(i, 'excise_rate'))} title={fe(lineErr(i, 'excise_rate'))} /></td>
                     <td className="num">{money(l.excise_amount)}</td>
                     <td><input type="number" step="any" min="0" value={lines[i].vatable_service_fee} onChange={(e) => setLine(i, 'vatable_service_fee', e.target.value)} placeholder="0" /></td>
                     <td className="num">{money(l.vat_amount)}</td>
                     <td><input type="number" step="any" min="0" value={lines[i].non_vatable_fee} onChange={(e) => setLine(i, 'non_vatable_fee', e.target.value)} placeholder="0" /></td>
                     <td className="num"><strong>{money(l.line_total)}</strong></td>
                     <td>
-                      <button className="icon-btn" aria-label="Remove line" disabled={lines.length === 1} onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}>✕</button>
+                      <button className="icon-btn" aria-label={t('Remove line')} disabled={lines.length === 1} onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}>✕</button>
                     </td>
                   </tr>
                 );
@@ -360,21 +347,21 @@ export default function InvoiceForm({ kind, id }: { kind: 'P' | 'S'; id?: string
           </datalist>
         </div>
         <div className="card-body row" style={{ alignItems: 'flex-start' }}>
-          <button className="btn" onClick={() => setLines((ls) => [...ls, { ...blankLine(kind), tx_type: ls[ls.length - 1]?.tx_type ?? blankLine(kind).tx_type, transaction_type: ls[ls.length - 1]?.transaction_type ?? 'Vatable' }])}>+ Add line</button>
+          <button className="btn" onClick={() => setLines((ls) => [...ls, { ...blankLine(kind), tx_type: ls[ls.length - 1]?.tx_type ?? blankLine(kind).tx_type, transaction_type: ls[ls.length - 1]?.transaction_type ?? 'Vatable' }])}>{t('+ Add line')}</button>
           <div className="totals">
-            <div><span>B · Total price (A × Qty)</span><span>{money(totals.total_amount)}</span></div>
-            <div><span>D · Excise tax amount</span><span>{money(totals.excise_amount)}</span></div>
-            <div><span>E · Other vatable service fee</span><span>{money(totals.vatable_service_fee)}</span></div>
-            <div className="muted"><span>VAT base (B + D + E)</span><span>{money(totals.taxable_amount)}</span></div>
-            <div><span>F · VAT ({Math.round(rules.vat_rate * 100)}%)</span><span>{money(totals.vat_amount)}</span></div>
-            <div><span>G · Other non-vatable fee</span><span>{money(totals.non_vatable_fee)}</span></div>
-            <div className="grand"><span>H · Total price</span><span>ETB {money(totals.grand_total)}</span></div>
+            <div><span>{t('B · Total price (A × Qty)')}</span><span>{money(totals.total_amount)}</span></div>
+            <div><span>{t('D · Excise tax amount')}</span><span>{money(totals.excise_amount)}</span></div>
+            <div><span>{t('E · Other vatable service fee')}</span><span>{money(totals.vatable_service_fee)}</span></div>
+            <div className="muted"><span>{t('VAT base (B + D + E)')}</span><span>{money(totals.taxable_amount)}</span></div>
+            <div><span>{t('F · VAT ({rate}%)', { rate: Math.round(rules.vat_rate * 100) })}</span><span>{money(totals.vat_amount)}</span></div>
+            <div><span>{t('G · Other non-vatable fee')}</span><span>{money(totals.non_vatable_fee)}</span></div>
+            <div className="grand"><span>{t('H · Total price')}</span><span>{t('ETB')} {money(totals.grand_total)}</span></div>
             <div className="small muted">
-              <span>Withholding</span>
+              <span>{t('Withholding')}</span>
               <span>
                 {wh!.applicable
-                  ? <><Badge>{wh!.status}</Badge> {money(wh!.expected)} ({rules.wh_rate * 100}%)</>
-                  : `Not applicable (threshold ${money(h.vat_category === 'S' ? rules.wh_service_threshold : rules.wh_goods_threshold)})`}
+                  ? <><TBadge value={wh!.status} /> {money(wh!.expected)} ({rules.wh_rate * 100}%)</>
+                  : t('Not applicable (threshold {amount})', { amount: money(h.vat_category === 'S' ? rules.wh_service_threshold : rules.wh_goods_threshold) })}
               </span>
             </div>
           </div>

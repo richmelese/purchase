@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { money, compact } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 const H = 280;     // fixed plot height; width follows the container
 const PAD = { top: 12, right: 8, bottom: 28, left: 56 };
@@ -44,6 +45,7 @@ export interface MonthlyChartProps {
 }
 
 export default function MonthlyChart({ labels, series }: MonthlyChartProps) {
+  const { t: tr, lang } = useT();
   const [tip, setTip] = useState<Tip | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const [W, setW] = useState(760);
@@ -74,7 +76,7 @@ export default function MonthlyChart({ labels, series }: MonthlyChartProps) {
       <div className="legend" style={{ marginBottom: 8 }}>
         {series.map((s) => <span key={s.name}><i style={{ background: s.color }} />{s.name}</span>)}
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} role="img" aria-label={`${series.map((s) => s.name).join(' and ')} by month`}>
+      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} role="img" aria-label={tr('{series} by month', { series: series.map((s) => s.name).join(' / ') })}>
         {ticks.map((t) => (
           <g key={t}>
             <line x1={PAD.left} x2={W - PAD.right} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'var(--axis)' : 'var(--grid)'} strokeWidth="1" />
@@ -93,14 +95,14 @@ export default function MonthlyChart({ labels, series }: MonthlyChartProps) {
                   <g key={s.name}>
                     {/* larger invisible hit target */}
                     <rect x={x - 1} y={PAD.top} width={BAR + 2} height={ih} fill="transparent"
-                      tabIndex={0} aria-label={`${label}, ${s.name}: ${money(v)}`}
+                      tabIndex={0} aria-label={`${tr(label)}, ${s.name}: ${money(v)}`}
                       onPointerMove={(e) => show(e, label, s, v)} onFocus={(e) => show(e, label, s, v)}
                       onPointerLeave={() => setTip(null)} onBlur={() => setTip(null)} />
                     <path className="bar" d={column(x, top, BAR, PAD.top + ih - top)} fill={s.color} pointerEvents="none" />
                   </g>
                 );
               })}
-              <text className="tick" x={PAD.left + band * i + band / 2} y={H - 8} textAnchor="middle">{label.slice(0, 3)}</text>
+              <text className="tick" x={PAD.left + band * i + band / 2} y={H - 8} textAnchor="middle">{lang === 'am' ? tr(label) : label.slice(0, 3)}</text>
             </g>
           );
         })}
@@ -108,7 +110,7 @@ export default function MonthlyChart({ labels, series }: MonthlyChartProps) {
       {tip && (
         <div className="tooltip" style={{ left: tip.x, top: tip.y }}>
           <strong>ETB {money(tip.value)}</strong>
-          <span className="muted">{tip.name} · {tip.label}</span>
+          <span className="muted">{tip.name} · {tr(tip.label)}</span>
         </div>
       )}
     </div>

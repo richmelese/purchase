@@ -5,6 +5,9 @@
 // Pagume (month 13, 5-6 days) is folded into Nehase for tax reporting,
 // exactly as the original workbook does (Nehase = Aug 7 - Sep 10).
 
+// Month names stay English here (they are data keys); translate for display with t()/tx().
+import { tx } from '../i18n/core';
+
 export const EC_MONTHS = [
   'Meskerem', 'Tikimt', 'Hidar', 'Tahsas', 'Tir', 'Yekatit',
   'Megabit', 'Miazia', 'Ginbot', 'Sene', 'Hamle', 'Nehase', 'Pagume',
@@ -84,7 +87,7 @@ export function toGregorian(year: unknown, month: unknown, day: unknown): string
 /** Human-readable Ethiopian date: '20 Meskerem 2019' */
 export const formatEthiopian = (iso: unknown): string => {
   const e = toEthiopian(iso);
-  return e ? `${e.day} ${EC_MONTHS[e.month - 1]} ${e.year}` : '';
+  return e ? `${e.day} ${tx(EC_MONTHS[e.month - 1])} ${e.year}` : '';
 };
 
 export interface TaxPeriod {

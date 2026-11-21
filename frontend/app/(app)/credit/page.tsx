@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { useSession } from '@/components/session';
 import { money, date } from '@/lib/format';
 import { PageHeader, Card, Badge, Loading, Empty, useFetch } from '@/components/ui';
+import { useT } from '@/lib/i18n';
 
 interface BucketDef {
   label: string;
@@ -33,6 +34,7 @@ interface PartyBalance {
 
 function Credit() {
   const { can } = useSession();
+  const { t } = useT();
   const params = useSearchParams();
   const [kind, setKind] = useState<'P' | 'S'>(params.get('tab') === 'S' ? 'S' : 'P');
   const [all, setAll] = useState(false);
@@ -54,29 +56,29 @@ function Credit() {
 
   return (
     <>
-      <PageHeader title="Credit & payments" subtitle="Outstanding credit purchases (payables) and credit sales (receivables)">
-        {can('credit', 'export') && <a className="btn" href="/api/export/credit">Export Excel</a>}
+      <PageHeader title={t('Credit & payments')} subtitle={t('Outstanding credit purchases (payables) and credit sales (receivables)')}>
+        {can('credit', 'export') && <a className="btn" href="/api/export/credit">{t('Export Excel')}</a>}
       </PageHeader>
       <div className="tabs">
-        <button className={`tab ${kind === 'P' ? 'active' : ''}`} onClick={() => setKind('P')}>Payables – we owe</button>
-        <button className={`tab ${kind === 'S' ? 'active' : ''}`} onClick={() => setKind('S')}>Receivables – owed to us</button>
+        <button className={`tab ${kind === 'P' ? 'active' : ''}`} onClick={() => setKind('P')}>{t('Payables – we owe')}</button>
+        <button className={`tab ${kind === 'S' ? 'active' : ''}`} onClick={() => setKind('S')}>{t('Receivables – owed to us')}</button>
       </div>
 
       <div className="grid grid-4">
         {BUCKETS.map((b, i) => (
           <div key={b} className="card stat">
-            <div className="stat-label">{b} days</div>
+            <div className="stat-label">{t('{bucket} days', { bucket: b })}</div>
             <div className="stat-value" style={i === BUCKETS.length - 1 && aging[i] > 0 ? { color: 'var(--bad)' } : undefined}>{money(aging[i])}</div>
           </div>
         ))}
       </div>
 
       <div className="grid mt fill-row" style={{ gridTemplateColumns: 'minmax(0,2fr) minmax(0,1fr)' }}>
-        <Card fill bodyClass="" title={kind === 'P' ? 'Credit purchases' : 'Credit sales'} actions={<label className="check small"><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} />Include settled</label>}>
-          {!data ? <Loading error={error} /> : !data.length ? <Empty>No {all ? '' : 'open '}credit transactions.</Empty> : (
+        <Card fill bodyClass="" title={kind === 'P' ? t('Credit purchases') : t('Credit sales')} actions={<label className="check small"><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} />{t('Include settled')}</label>}>
+          {!data ? <Loading error={error} /> : !data.length ? <Empty>{all ? t('No credit transactions.') : t('No open credit transactions.')}</Empty> : (
             <div className="table-wrap">
               <table>
-                <thead><tr><th>ID</th><th>Date</th><th>{kind === 'P' ? 'Seller' : 'Buyer'}</th><th className="num">Due</th><th className="num">Paid</th><th className="num">Balance</th><th>Age</th></tr></thead>
+                <thead><tr><th>{t('ID')}</th><th>{t('Date')}</th><th>{kind === 'P' ? t('Seller') : t('Buyer')}</th><th className="num">{t('Due')}</th><th className="num">{t('Paid')}</th><th className="num">{t('Balance')}</th><th>{t('Age')}</th></tr></thead>
                 <tbody>
                   {data.map((r) => (
                     <tr key={r.id}>
@@ -86,7 +88,7 @@ function Credit() {
                       <td className="num">{money(r.amount_due)}</td>
                       <td className="num">{money(r.amount_paid)}</td>
                       <td className="num"><strong>{money(r.balance)}</strong></td>
-                      <td>{r.balance > 0.004 ? <Badge tone={r.age_days > 90 ? 'bad' : r.age_days > 30 ? 'warn' : undefined}>{r.age_days} days</Badge> : <Badge tone="good">Paid</Badge>}</td>
+                      <td>{r.balance > 0.004 ? <Badge tone={r.age_days > 90 ? 'bad' : r.age_days > 30 ? 'warn' : undefined}>{t('{n} days', { n: r.age_days })}</Badge> : <Badge tone="good">{t('Paid')}</Badge>}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -94,8 +96,8 @@ function Credit() {
             </div>
           )}
         </Card>
-        <Card title={`Balance by ${kind === 'P' ? 'supplier' : 'customer'}`}>
-          {!byParty.length ? <Empty>Nothing outstanding</Empty> : (
+        <Card title={kind === 'P' ? t('Balance by supplier') : t('Balance by customer')}>
+          {!byParty.length ? <Empty>{t('Nothing outstanding')}</Empty> : (
             <ul className="list-plain">
               {byParty.map((p) => <li key={p.tin || p.name}><span>{p.name} <span className="muted small">({p.n})</span></span><strong>{money(p.balance)}</strong></li>)}
             </ul>

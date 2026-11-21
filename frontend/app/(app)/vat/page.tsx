@@ -3,9 +3,9 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { money } from '@/lib/format';
-import { fiscalYearLabel } from '@/lib/shared/ethiopian';
 import { PageHeader, Card, Loading, PeriodFilter, useFetch, useCurrentFy, useToast } from '@/components/ui';
 import { useSession } from '@/components/session';
+import { useT } from '@/lib/i18n';
 
 interface VatLine {
   no: number;
@@ -25,6 +25,7 @@ interface VatData {
 export default function VatPage() {
   const { can } = useSession();
   const toast = useToast();
+  const { t } = useT();
   const currentFy = useCurrentFy();
   const [fy, setFy] = useState<number | null>(null);
   const [editing, setEditing] = useState(false);
@@ -49,7 +50,7 @@ export default function VatPage() {
     try {
       setData(await api.put<VatData>('/vat/adjustments', { fy, items }));
       setEditing(false);
-      toast('Adjustments saved');
+      toast(t('Adjustments saved'));
     } catch (e: any) { toast(e.message, 'error'); }
   };
 
@@ -57,18 +58,16 @@ export default function VatPage() {
 
   return (
     <>
-      <PageHeader title="VAT declaration summary" subtitle={`Monthly VAT return lines · ${fy ? fiscalYearLabel(fy) : ''}`}>
+      <PageHeader title={t('VAT declaration summary')} subtitle={`${t('Monthly VAT return lines')} · ${fy ? t('FY {years} E.C.', { years: `${fy - 1}/${String(fy).slice(-2)}` }) : ''}`}>
         <PeriodFilter fy={fy} month="" showMonth={false} onChange={(p) => setFy(p.fy)} />
         {editing
-          ? <><button className="btn" onClick={() => setEditing(false)}>Cancel</button><button className="btn btn-primary" onClick={save}>Save adjustments</button></>
-          : can('vat', 'edit') && <button className="btn" onClick={startEdit} disabled={!data}>Edit manual lines</button>}
-        {can('vat', 'export') && <a className="btn" href={`/api/export/vat?fy=${fy || ''}`}>Export Excel</a>}
+          ? <><button className="btn" onClick={() => setEditing(false)}>{t('Cancel')}</button><button className="btn btn-primary" onClick={save}>{t('Save adjustments')}</button></>
+          : can('vat', 'edit') && <button className="btn" onClick={startEdit} disabled={!data}>{t('Edit manual lines')}</button>}
+        {can('vat', 'export') && <a className="btn" href={`/api/export/vat?fy=${fy || ''}`}>{t('Export Excel')}</a>}
       </PageHeader>
 
       <div className="alert alert-info no-print">
-        Lines are computed from recorded transactions by <em>Type of purchase / sales</em>. Reverse taxation, debit/credit notes,
-        government vouchers, other credits and refunds are entered manually. Line 195 is carried forward automatically from the
-        previous month&apos;s credit; enter the opening credit for Hamle when editing.
+        {t("Lines are computed from recorded transactions by type of purchase / sales. Reverse taxation, debit/credit notes, government vouchers, other credits and refunds are entered manually. Line 195 is carried forward automatically from the previous month's credit; enter the opening credit for Hamle when editing.")}
       </div>
 
       <Card fill bodyClass="">
@@ -77,10 +76,10 @@ export default function VatPage() {
             <table className="vat-table">
               <thead>
                 <tr>
-                  <th>Line</th>
-                  <th>Description</th>
-                  <th className="num">Total</th>
-                  {data.months.map((m) => <th key={m} className="num">{m}</th>)}
+                  <th>{t('Line')}</th>
+                  <th>{t('Description')}</th>
+                  <th className="num">{t('Total')}</th>
+                  {data.months.map((m) => <th key={m} className="num">{t(m)}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -88,14 +87,14 @@ export default function VatPage() {
                   <tr key={l.no} className={`${l.total !== undefined && l.kind === 'calc' && VAT_TOTAL.has(l.no) ? 'total' : ''} ${l.highlight ? 'highlight' : ''}`}>
                     <td>{l.no}</td>
                     <td>
-                      {l.label}
-                      {l.kind === 'manual' && <span className="muted small"> · manual</span>}
+                      {t(l.label)}
+                      {l.kind === 'manual' && <span className="muted small"> · {t('manual')}</span>}
                     </td>
                     <td className="num"><strong>{money(l.total)}</strong></td>
                     {l.values.map((v, i) => (
                       <td key={i} className="num">
                         {editable(l, i)
-                          ? <input type="number" step="any" value={draft[`${l.no}:${i}`] ?? ''} onChange={(e) => setDraft({ ...draft, [`${l.no}:${i}`]: e.target.value })} aria-label={`Line ${l.no} ${data.months[i]}`} />
+                          ? <input type="number" step="any" value={draft[`${l.no}:${i}`] ?? ''} onChange={(e) => setDraft({ ...draft, [`${l.no}:${i}`]: e.target.value })} aria-label={t('Line {no} {month}', { no: l.no, month: t(data.months[i]) })} />
                           : v ? money(v) : <span className="muted">–</span>}
                       </td>
                     ))}

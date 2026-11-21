@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { api } from '@/lib/api';
 import { Loading, useFetch } from './ui';
 import Icon from './icons';
+import { LanguageSwitch, useT } from '@/lib/i18n';
 
 interface PortalData {
   company: { name: string; [key: string]: unknown };
@@ -19,6 +20,7 @@ export const usePortal = (): PortalData => useContext(Ctx)!;
 
 export function PortalShell({ children }: { children: ReactNode }) {
   const { data, error } = useFetch<PortalData>('/portal/company');
+  const { t } = useT();
   const signOut = async () => {
     await api.post('/auth/logout').catch(() => {});
     window.location.href = '/login';
@@ -29,14 +31,15 @@ export function PortalShell({ children }: { children: ReactNode }) {
         <Link href="/portal" className="portal-brand">
           <span className="portal-logo"><Icon name="suppliers" size={20} /></span>
           <span>
-            <strong>{data?.company.name || 'Company portal'}</strong>
-            <small>{data ? `Company portal · ${data.issuer.company_name}` : ' '}</small>
+            <strong>{data?.company.name || t('Company portal')}</strong>
+            <small>{data ? t('Company portal · {issuer}', { issuer: data.issuer.company_name }) : ' '}</small>
           </span>
         </Link>
         <div className="portal-user">
-          {data && <span className="small muted">Signed in as <b>{data.account.username}</b></span>}
-          <Link className="btn btn-sm" href="/change-password"><Icon name="key" size={15} /> Change password</Link>
-          <button className="btn btn-sm" onClick={signOut}><Icon name="logout" size={15} /> Sign out</button>
+          <LanguageSwitch />
+          {data && <span className="small muted">{t('Signed in as')} <b>{data.account.username}</b></span>}
+          <Link className="btn btn-sm" href="/change-password"><Icon name="key" size={15} /> {t('Change password')}</Link>
+          <button className="btn btn-sm" onClick={signOut}><Icon name="logout" size={15} /> {t('Sign out')}</button>
         </div>
       </header>
       <main className="portal-main">

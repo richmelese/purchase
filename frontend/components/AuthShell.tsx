@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, type ReactNode } from 'react';
+import { LanguageSwitch, useT } from '@/lib/i18n';
 
 // The navy wave is drawn in the card's coordinate system (1000 × 580) and overflows it,
 // so the curve runs continuously through the card and the page background at any size.
@@ -45,6 +46,7 @@ export interface AuthShellProps {
 }
 
 export default function AuthShell({ title, children, footer, compact }: AuthShellProps) {
+  const { t } = useT();
   const [company, setCompany] = useState('');
   useEffect(() => {
     fetch('/api/auth/status').then((r) => r.json()).then((d) => setCompany(d.company_name || '')).catch(() => {});
@@ -68,12 +70,15 @@ export default function AuthShell({ title, children, footer, compact }: AuthShel
         <Decorations />
 
         <section className="auth-form">
-          <div className="auth-brand">{company || ' '}</div>
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+            <div className="auth-brand">{company || ' '}</div>
+            <LanguageSwitch />
+          </div>
           <h1 className="auth-title">{title}</h1>
           {children}
           <div className="auth-copy">
             {footer}
-            Copyright ©{year} {company || 'Purchase & Sales Management'}. All rights reserved
+            {t('Copyright ©{year} {company}. All rights reserved', { year, company: company || t('Purchase & Sales Management') })}
           </div>
         </section>
 
@@ -91,6 +96,7 @@ export interface AuthInputProps extends React.InputHTMLAttributes<HTMLInputEleme
 
 /** Underlined input with an icon; password fields get a show / hide button. */
 export function AuthInput({ icon, type, ...props }: AuthInputProps) {
+  const { t } = useT();
   const [visible, setVisible] = useState(false);
   const isPassword = type === 'password';
   return (
@@ -102,9 +108,9 @@ export function AuthInput({ icon, type, ...props }: AuthInputProps) {
           type="button"
           className="auth-eye"
           onClick={() => setVisible((v) => !v)}
-          aria-label={visible ? 'Hide password' : 'Show password'}
+          aria-label={visible ? t('Hide password') : t('Show password')}
           aria-pressed={visible}
-          title={visible ? 'Hide password' : 'Show password'}
+          title={visible ? t('Hide password') : t('Show password')}
         >
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d={visible ? EYE_OFF : EYE} />

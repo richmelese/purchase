@@ -8,6 +8,7 @@ import { PageHeader, Card, Badge, Loading, Empty, Field, Select, Modal, useFetch
 import ImportButton from '@/components/ImportButton';
 import { ProfileForm, PROFILE_SECTIONS } from '@/components/CompanyProfile';
 import { useSession } from '@/components/session';
+import { useT } from '@/lib/i18n';
 import type { Party } from '@/lib/types';
 
 const BASIC = ['tin', 'name', 'type', 'mrc1', 'mrc2', 'mrc3'] as const;
@@ -61,6 +62,7 @@ interface PartyModalProps {
 // New / edit company: basic register fields plus the Company Profile Other Detail Registration (Form 00001).
 function PartyModal({ party, onClose, onSaved }: PartyModalProps) {
   const toast = useToast();
+  const { t } = useT();
   const { data, error } = useFetch<PartyFormData>(party ? `/parties/${party.id}` : '/parties/profile-template');
   const [f, setF] = useState<Record<string, string> | null>(null);
   const [profile, setProfile] = useState<unknown>(null);
@@ -85,7 +87,7 @@ function PartyModal({ party, onClose, onSaved }: PartyModalProps) {
     try {
       const body = { ...f, profile };
       const saved = party ? await api.put<SavedParty>(`/parties/${party.id}`, body) : await api.post<SavedParty>('/parties', body);
-      toast(`${f?.name} saved`);
+      toast(t('{name} saved', { name: f?.name }));
       if (saved.tin_warning) {
         // Keep the modal open so the warning is actually seen, instead of closing straight away;
         // the list still refreshes now in the background so the saved party shows up underneath.
@@ -108,13 +110,13 @@ function PartyModal({ party, onClose, onSaved }: PartyModalProps) {
 
   const basicFields = f && (
     <>
-      <Field label="Company TIN" error={err.tin} hint="Digits only (normally 10)"><input value={f.tin} onChange={set('tin')} inputMode="numeric" autoFocus={!party} aria-invalid={!!err.tin} /></Field>
-      <Field label="Company name" required error={err.name} className="span-2"><input value={f.name} onChange={set('name')} aria-invalid={!!err.name} /></Field>
-      <Field label="Type" error={err.type} hint="Supplier, customer or both"><Select options={['Supplier', 'Customer', 'Both']} value={f.type} onChange={set('type')} /></Field>
+      <Field label={t('Company TIN')} error={err.tin} hint={t('Digits only (normally 10)')}><input value={f.tin} onChange={set('tin')} inputMode="numeric" autoFocus={!party} aria-invalid={!!err.tin} /></Field>
+      <Field label={t('Company name')} required error={err.name} className="span-2"><input value={f.name} onChange={set('name')} aria-invalid={!!err.name} /></Field>
+      <Field label={t('Type')} error={err.type} hint={t('Supplier, customer or both')}><Select options={['Supplier', 'Customer', 'Both'].map((v) => ({ value: v, label: t(v) }))} value={f.type} onChange={set('type')} /></Field>
       <Field label="MRC-1"><input value={f.mrc1} onChange={set('mrc1')} /></Field>
       <Field label="MRC-2"><input value={f.mrc2} onChange={set('mrc2')} /></Field>
       <Field label="MRC-3"><input value={f.mrc3} onChange={set('mrc3')} /></Field>
-      <div className="cp-divider span-4"><span>Registration details</span></div>
+      <div className="cp-divider span-4"><span>{t('Registration details')}</span></div>
     </>
   );
 
@@ -123,42 +125,42 @@ function PartyModal({ party, onClose, onSaved }: PartyModalProps) {
       width={1060}
       className="cp-modal"
       icon="suppliers"
-      title={warning ? `${f?.name || party?.name || 'Company'} saved` : party ? `Edit ${party.name}` : 'New company'}
-      subtitle={warning ? 'Please check this before continuing' : 'Company Profile Other Detail Registration · Form 00001'}
+      title={warning ? t('{name} saved', { name: f?.name || party?.name || t('Company') }) : party ? t('Edit {name}', { name: party.name }) : t('New company')}
+      subtitle={warning ? t('Please check this before continuing') : t('Company Profile Other Detail Registration · Form 00001')}
       onClose={onClose}
       footer={warning ? (
-        <button className="btn btn-primary" onClick={onClose}>Got it</button>
+        <button className="btn btn-primary" onClick={onClose}>{t('Got it')}</button>
       ) : (
         <div className="cp-modal-foot">
           <div className="row">
-            <button className="btn btn-ghost" disabled={index <= 0} onClick={() => setTab(PROFILE_SECTIONS[index - 1].id)}>← Previous</button>
-            <span className="small muted">Step {index + 1} of {PROFILE_SECTIONS.length}</span>
-            <button className="btn btn-ghost" disabled={index >= PROFILE_SECTIONS.length - 1} onClick={() => setTab(PROFILE_SECTIONS[index + 1].id)}>Next →</button>
+            <button className="btn btn-ghost" disabled={index <= 0} onClick={() => setTab(PROFILE_SECTIONS[index - 1].id)}>{t('← Previous')}</button>
+            <span className="small muted">{t('Step {n} of {total}', { n: index + 1, total: PROFILE_SECTIONS.length })}</span>
+            <button className="btn btn-ghost" disabled={index >= PROFILE_SECTIONS.length - 1} onClick={() => setTab(PROFILE_SECTIONS[index + 1].id)}>{t('Next →')}</button>
           </div>
           <div className="row">
-            <button className="btn" onClick={onClose}>Cancel</button>
-            <button className="btn btn-primary" onClick={save} disabled={busy || !f}>{busy ? 'Saving…' : party ? 'Save changes' : 'Create company'}</button>
+            <button className="btn" onClick={onClose}>{t('Cancel')}</button>
+            <button className="btn btn-primary" onClick={save} disabled={busy || !f}>{busy ? t('Saving…') : party ? t('Save changes') : t('Create company')}</button>
           </div>
         </div>
       )}
     >
       {warning ? (
         <div className="alert alert-warn" style={{ marginBottom: 0 }}>
-          <p style={{ marginTop: 0 }}>{warning.message}</p>
+          <p style={{ marginTop: 0 }}>{t(warning.message)}</p>
           <ul style={{ marginBottom: 0 }}>
             {warning.matches.map((m) => (
-              <li key={m.id}><Link href={`/parties/${m.id}`}>{m.name}</Link> · <Badge>{m.type}</Badge></li>
+              <li key={m.id}><Link href={`/parties/${m.id}`}>{m.name}</Link> · <Badge tone="info">{t(m.type)}</Badge></li>
             ))}
           </ul>
         </div>
       ) : !f || !profile ? <Loading error={error} /> : (
         <>
           {err._ && <div className="alert alert-error">{err._}</div>}
-          <div className="cp-tabs" role="tablist" aria-label="Form sections">
+          <div className="cp-tabs" role="tablist" aria-label={t('Form sections')}>
             {PROFILE_SECTIONS.map((s) => (
               <button key={s.id} type="button" role="tab" aria-selected={tab === s.id}
                 className={`cp-tab ${tab === s.id ? 'on' : ''} ${tabHasError(s.id) ? 'bad' : ''}`} onClick={() => setTab(s.id)}>
-                <span className="cp-no">{s.no}</span><span className="cp-tab-label">{s.short}</span>
+                <span className="cp-no">{s.no}</span><span className="cp-tab-label">{t(s.short)}</span>
               </button>
             ))}
           </div>
@@ -179,27 +181,27 @@ interface CredentialsModalProps {
 /** Shows a generated company login once (it cannot be displayed again). */
 function CredentialsModal({ company, account, onClose }: CredentialsModalProps) {
   const toast = useToast();
+  const { t } = useT();
   const signIn = typeof window !== 'undefined' ? `${window.location.origin}/login` : '/login';
   const text = `${company}
-Sign in: ${signIn}
-User name: ${account.username}
-Password: ${account.password}
-(You will be asked to choose your own password at first sign-in.)`;
+${t('Sign in')}: ${signIn}
+${t('User name')}: ${account.username}
+${t('Password')}: ${account.password}
+${t('(You will be asked to choose your own password at first sign-in.)')}`;
   const copy = async (value: string, what: string) => {
-    try { await navigator.clipboard.writeText(value); toast(`${what} copied`); } catch { toast('Copy not available – select the text instead', 'error'); }
+    try { await navigator.clipboard.writeText(value); toast(t('{what} copied', { what })); } catch { toast(t('Copy not available – select the text instead'), 'error'); }
   };
   return (
-    <Modal width={520} icon="key" title={account.created ? 'Company login created' : 'New password issued'} subtitle={company} onClose={onClose}
-      footer={<><button className="btn" onClick={() => copy(text, 'Login details')}>Copy all</button><button className="btn btn-primary" onClick={onClose}>Done</button></>}>
+    <Modal width={520} icon="key" title={account.created ? t('Company login created') : t('New password issued')} subtitle={company} onClose={onClose}
+      footer={<><button className="btn" onClick={() => copy(text, t('Login details'))}>{t('Copy all')}</button><button className="btn btn-primary" onClick={onClose}>{t('Done')}</button></>}>
       <p className="small muted" style={{ marginTop: 0 }}>
-        Give these to the company. They sign in at <b>{signIn}</b> and only see their own company&apos;s purchases, sales,
-        statement and profile. At first sign-in they must choose their own password.
+        {t('Give these to the company. They sign in at {url} and only see their own company\'s purchases, sales, statement and profile. At first sign-in they must choose their own password.', { url: signIn })}
       </p>
       <div className="cred">
-        <div className="cred-row"><span>User name</span><code>{account.username}</code><button className="btn btn-sm" onClick={() => copy(account.username, 'User name')}>Copy</button></div>
-        <div className="cred-row"><span>Password</span><code>{account.password}</code><button className="btn btn-sm" onClick={() => copy(account.password, 'Password')}>Copy</button></div>
+        <div className="cred-row"><span>{t('User name')}</span><code>{account.username}</code><button className="btn btn-sm" onClick={() => copy(account.username, t('User name'))}>{t('Copy')}</button></div>
+        <div className="cred-row"><span>{t('Password')}</span><code>{account.password}</code><button className="btn btn-sm" onClick={() => copy(account.password, t('Password'))}>{t('Copy')}</button></div>
       </div>
-      <div className="alert alert-warn" style={{ marginBottom: 0 }}>This password is shown only now. If it is lost, use <b>Reset password</b> to issue a new one.</div>
+      <div className="alert alert-warn" style={{ marginBottom: 0 }}>{t('This password is shown only now. If it is lost, use Reset password to issue a new one.')}</div>
     </Modal>
   );
 }
@@ -211,6 +213,7 @@ interface CredentialsState {
 
 export default function PartiesPage() {
   const toast = useToast();
+  const { t } = useT();
   const [type, setType] = useState('');
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState<Party | Record<string, never> | null>(null);
@@ -220,8 +223,8 @@ export default function PartiesPage() {
 
   const issueLogin = async (p: PartyRow) => {
     const msg = p.login_username
-      ? `Issue a new password for ${p.name}? The old password stops working and they are signed out.`
-      : `Create a login for ${p.name}?`;
+      ? t('Issue a new password for {name}? The old password stops working and they are signed out.', { name: p.name })
+      : t('Create a login for {name}?', { name: p.name });
     if (!confirm(msg)) return;
     try {
       setCredentials({ company: p.name, account: await api.post<LoginAccount>(`/parties/${p.id}/account`) });
@@ -230,36 +233,36 @@ export default function PartiesPage() {
   };
 
   const remove = async (p: PartyRow) => {
-    if (!confirm(`Delete ${p.name}?`)) return;
+    if (!confirm(t('Delete {name}?', { name: p.name }))) return;
     try {
       await api.del(`/parties/${p.id}`);
-      toast(`${p.name} deleted`);
+      toast(t('{name} deleted', { name: p.name }));
       reload();
     } catch (e: any) { toast(e.message, 'error'); }
   };
 
   return (
     <>
-      <PageHeader title="Supplier list" subtitle="Company profile – TIN register used for lookups on purchases and sales">
+      <PageHeader title={t('Customer list')} subtitle={t('Company profile – TIN register used for lookups on purchases and sales')}>
         {can('parties', 'create') && <ImportButton url="/import/parties?type=Supplier" onDone={reload} />}
-        {can('parties', 'export') && <a className="btn" href="/api/export/list/parties">Export Excel</a>}
-        {can('parties', 'create') && <button className="btn btn-primary" onClick={() => setEditing({})}>+ New company</button>}
+        {can('parties', 'export') && <a className="btn" href="/api/export/list/parties">{t('Export Excel')}</a>}
+        {can('parties', 'create') && <button className="btn btn-primary" onClick={() => setEditing({})}>{t('+ New company')}</button>}
       </PageHeader>
       <Card fill bodyClass="" title={(
         <div className="row">
-          <input type="search" placeholder="Search name or TIN…" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />
-          <select value={type} onChange={(e) => setType(e.target.value)} aria-label="Type">
-            <option value="">Suppliers & customers</option><option value="Supplier">Suppliers</option><option value="Customer">Customers</option>
+          <input type="search" placeholder={t('Search name or TIN…')} value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />
+          <select value={type} onChange={(e) => setType(e.target.value)} aria-label={t('Type')}>
+            <option value="">{t('Suppliers & customers')}</option><option value="Supplier">{t('Suppliers')}</option><option value="Customer">{t('Customers')}</option>
           </select>
         </div>
-      )} actions={<span className="small muted">{data?.length ?? 0} companies</span>}>
-        {!data ? <Loading error={error} /> : !data.length ? <Empty>No companies yet.</Empty> : (
+      )} actions={<span className="small muted">{t('{n} companies', { n: data?.length ?? 0 })}</span>}>
+        {!data ? <Loading error={error} /> : !data.length ? <Empty>{t('No companies yet.')}</Empty> : (
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th className="num">No</th><th>Company TIN</th><th>Company name</th><th>MRC-1</th><th>MRC-2</th><th>MRC-3</th>
-                  <th>Type</th><th>Phone</th><th>Login</th><th className="num">Purchased</th><th className="num">Sold</th><th />
+                  <th className="num">{t('No.')}</th><th>{t('Company TIN')}</th><th>{t('Company name')}</th><th>MRC-1</th><th>MRC-2</th><th>MRC-3</th>
+                  <th>{t('Type')}</th><th>{t('Phone')}</th><th>{t('Login account')}</th><th className="num">{t('Purchased')}</th><th className="num">{t('Sold')}</th><th />
                 </tr>
               </thead>
               <tbody>
@@ -269,18 +272,18 @@ export default function PartiesPage() {
                     <td>{p.tin || <span className="muted">—</span>}</td>
                     <td className="wrap"><Link href={`/parties/${p.id}`}><strong>{p.name}</strong></Link>{p.address || p.email ? <div className="small muted">{[p.address, p.email].filter(Boolean).join(' · ')}</div> : null}</td>
                     <td>{p.mrc1}</td><td>{p.mrc2}</td><td>{p.mrc3}</td>
-                    <td><Badge>{p.type}</Badge></td>
+                    <td><Badge tone="info">{t(p.type)}</Badge></td>
                     <td>{p.phone}</td>
                     <td>{p.login_username
-                      ? <span title={p.login_active ? 'Company can sign in' : 'Login deactivated'}><code className="login-name">{p.login_username}</code>{!p.login_active && <Badge tone="bad">Off</Badge>}</span>
-                      : <span className="muted small">No login</span>}</td>
+                      ? <span title={p.login_active ? t('Company can sign in') : t('Login deactivated')}><code className="login-name">{p.login_username}</code>{!p.login_active && <Badge tone="bad">{t('Off')}</Badge>}</span>
+                      : <span className="muted small">{t('No login')}</span>}</td>
                     <td className="num">{money(p.purchased)}</td>
                     <td className="num">{money(p.sold)}</td>
                     <td className="right">
-                      <Link className="btn btn-sm btn-ghost" href={`/parties/${p.id}`}>Statement</Link>
-                      {canFor('parties', 'edit', p.id) && <button className="btn btn-sm btn-ghost" onClick={() => setEditing(p)}>Edit</button>}
-                      {canAny(['users', 'create'], ['users', 'edit']) && canCompany(p.id, 'edit') && <button className="btn btn-sm btn-ghost" onClick={() => issueLogin(p)}>{p.login_username ? 'Reset password' : 'Create login'}</button>}
-                      {canFor('parties', 'delete', p.id) && <button className="btn btn-sm btn-ghost" onClick={() => remove(p)} disabled={!!p.invoice_count && p.invoice_count > 0} title={p.invoice_count ? 'Has transactions' : ''}>Delete</button>}
+                      <Link className="btn btn-sm btn-ghost" href={`/parties/${p.id}`}>{t('Statement')}</Link>
+                      {canFor('parties', 'edit', p.id) && <button className="btn btn-sm btn-ghost" onClick={() => setEditing(p)}>{t('Edit')}</button>}
+                      {canAny(['users', 'create'], ['users', 'edit']) && canCompany(p.id, 'edit') && <button className="btn btn-sm btn-ghost" onClick={() => issueLogin(p)}>{p.login_username ? t('Reset password') : t('Create login')}</button>}
+                      {canFor('parties', 'delete', p.id) && <button className="btn btn-sm btn-ghost" onClick={() => remove(p)} disabled={!!p.invoice_count && p.invoice_count > 0} title={p.invoice_count ? t('Has transactions') : ''}>{t('Delete')}</button>}
                     </td>
                   </tr>
                 ))}
@@ -289,7 +292,7 @@ export default function PartiesPage() {
           </div>
         )}
       </Card>
-      <p className="small muted">Import accepts the workbook&apos;s “Supplier Lists” sheet (Company TIN, Company Name, MRC-1/2/3) or a file exported from here. Existing TINs are updated.</p>
+      <p className="small muted">{t('Import accepts the workbook\'s “Supplier Lists” sheet (Company TIN, Company Name, MRC-1/2/3) or a file exported from here. Existing TINs are updated.')}</p>
       {editing && <PartyModal party={(editing as Party).id ? (editing as Party) : null} onClose={() => setEditing(null)} onSaved={(saved, { close = true } = {}) => {
         reload();
         if (saved?.account) setCredentials({ company: saved.name, account: saved.account });

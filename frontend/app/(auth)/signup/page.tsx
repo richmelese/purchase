@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import AuthShell, { AuthInput, UserIcon, KeyIcon, IdIcon } from '@/components/AuthShell';
+import { useT } from '@/lib/i18n';
 
 type SignupForm = {
   full_name: string;
@@ -12,6 +13,7 @@ type SignupForm = {
 };
 
 export default function SignupPage() {
+  const { t } = useT();
   const [f, setF] = useState<SignupForm>({ full_name: '', username: '', password: '', confirm: '' });
   const [err, setErr] = useState<Record<string, string | undefined>>({});
   const [busy, setBusy] = useState(false);
@@ -38,27 +40,29 @@ export default function SignupPage() {
     setF({ ...f, [k]: e.target.value });
     setErr({ ...err, [k]: undefined });
   };
+  // Errors are stored in English (some come from the server) and translated when shown.
+  const show = (m?: string) => (m ? <div className="auth-field-err">{t(m)}</div> : null);
 
   return (
-    <AuthShell title="SIGN UP" compact>
+    <AuthShell title={t('SIGN UP')} compact>
       <p className="auth-note">
-        {firstRun ? 'This first account will be the administrator.' : 'New accounts must be activated by an administrator.'}
+        {firstRun ? t('This first account will be the administrator.') : t('New accounts must be activated by an administrator.')}
       </p>
-      {err._ && <div className="auth-error" role="alert">{err._}</div>}
+      {err._ && <div className="auth-error" role="alert">{t(err._)}</div>}
       <form onSubmit={submit} noValidate>
         <div className="auth-fields">
-          <AuthInput icon={IdIcon} placeholder="full name" autoComplete="name" autoFocus value={f.full_name} onChange={set('full_name')} aria-label="Full name" />
-          {err.full_name && <div className="auth-field-err">{err.full_name}</div>}
-          <AuthInput icon={UserIcon} placeholder="user name" autoComplete="username" value={f.username} onChange={set('username')} aria-label="User name" />
-          {err.username && <div className="auth-field-err">{err.username}</div>}
-          <AuthInput icon={KeyIcon} placeholder="password (min. 8 characters)" type="password" autoComplete="new-password" value={f.password} onChange={set('password')} aria-label="Password" />
-          {err.password && <div className="auth-field-err">{err.password}</div>}
-          <AuthInput icon={KeyIcon} placeholder="confirm password" type="password" autoComplete="new-password" value={f.confirm} onChange={set('confirm')} aria-label="Confirm password" />
-          {err.confirm && <div className="auth-field-err">{err.confirm}</div>}
+          <AuthInput icon={IdIcon} placeholder={t('full name')} autoComplete="name" autoFocus value={f.full_name} onChange={set('full_name')} aria-label={t('Full name')} />
+          {show(err.full_name)}
+          <AuthInput icon={UserIcon} placeholder={t('user name')} autoComplete="username" value={f.username} onChange={set('username')} aria-label={t('User name')} />
+          {show(err.username)}
+          <AuthInput icon={KeyIcon} placeholder={t('password (min. 8 characters)')} type="password" autoComplete="new-password" value={f.password} onChange={set('password')} aria-label={t('Password')} />
+          {show(err.password)}
+          <AuthInput icon={KeyIcon} placeholder={t('confirm password')} type="password" autoComplete="new-password" value={f.confirm} onChange={set('confirm')} aria-label={t('Confirm password')} />
+          {show(err.confirm)}
         </div>
-        <button className="auth-btn" type="submit" disabled={busy}>{busy ? 'Creating account…' : 'Create account'}</button>
+        <button className="auth-btn" type="submit" disabled={busy}>{busy ? t('Creating account…') : t('Create account')}</button>
         <div className="auth-row" style={{ justifyContent: 'center' }}>
-          <span>Already have an account? <Link className="auth-link" href="/login">Sign in</Link></span>
+          <span>{t('Already have an account?')} <Link className="auth-link" href="/login">{t('Sign in')}</Link></span>
         </div>
       </form>
     </AuthShell>

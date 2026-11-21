@@ -11,6 +11,8 @@ import {
 import Icon from '@/components/icons';
 import { useSession } from '@/components/session';
 import { useLookups } from '@/components/lookups';
+import { useT } from '@/lib/i18n';
+import DateInput from '@/components/DateInput';
 
 // ---------------------------------------------------------------------------
 // Row shapes
@@ -126,6 +128,7 @@ export default function ReconciliationPageWrapper() {
 
 function ReconciliationPage() {
   const { can } = useSession();
+  const { t } = useT();
   const searchParams = useSearchParams();
   const toast = useToast();
 
@@ -196,10 +199,10 @@ function ReconciliationPage() {
     setMatchingInProgress(true);
     try {
       const res = await api.post<{ total_matched: number; matched_purchases: number; matched_sales: number }>('/reconciliation/auto-match');
-      toast(`Auto-matched ${res.total_matched} transactions (${res.matched_purchases} purchases, ${res.matched_sales} sales)`);
+      toast(t('Auto-matched {total} transactions ({purchases} purchases, {sales} sales)', { total: res.total_matched, purchases: res.matched_purchases, sales: res.matched_sales }));
       reloadAll();
     } catch (err: any) {
-      toast(err.message || 'Auto-match failed', 'error');
+      toast(err.message || t('Auto-match failed'), 'error');
     } finally {
       setMatchingInProgress(false);
     }
@@ -207,21 +210,21 @@ function ReconciliationPage() {
 
   // Delete transaction
   const handleDeleteTx = async (txId: number) => {
-    if (!window.confirm('Are you sure you want to delete this bank statement entry?')) return;
+    if (!window.confirm(t('Are you sure you want to delete this bank statement entry?'))) return;
     try {
       await api.del(`/reconciliation/transactions/${txId}`);
-      toast('Transaction deleted');
+      toast(t('Transaction deleted'));
       reloadAll();
     } catch (err: any) {
-      toast(err.message || 'Delete failed', 'error');
+      toast(err.message || t('Delete failed'), 'error');
     }
   };
 
   return (
     <>
       <PageHeader
-        title="Bank Reconciliation"
-        subtitle="Match bank debits (purchases) and credits (sales) across Ethiopian bank accounts"
+        title={t('Bank Reconciliation')}
+        subtitle={t('Match bank debits (purchases) and credits (sales) across Ethiopian bank accounts')}
       >
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {can('reconciliation', 'create', 'create_bank_tx') && (
@@ -232,7 +235,7 @@ function ReconciliationPage() {
               setShowTxModal(true);
             }}
           >
-            <Icon name="plus" size={16} /> New Entry
+            <Icon name="plus" size={16} /> {t('New Entry')}
           </button>
           )}
           {can('reconciliation', 'edit', 'run_automatch') && (
@@ -240,19 +243,19 @@ function ReconciliationPage() {
             className="btn"
             onClick={handleAutoMatch}
             disabled={matchingInProgress}
-            title="Automatically link matching transactions by exact amount"
+            title={t('Automatically link matching transactions by exact amount')}
           >
-            <Icon name="trendUp" size={16} /> {matchingInProgress ? 'Matching...' : 'Auto-Match'}
+            <Icon name="trendUp" size={16} /> {matchingInProgress ? t('Matching...') : t('Auto-Match')}
           </button>
           )}
           {can('reconciliation', 'create', 'import_bank') && (
           <button className="btn" onClick={() => setShowImportModal(true)}>
-            <Icon name="upload" size={16} /> Import Form
+            <Icon name="upload" size={16} /> {t('Import Form')}
           </button>
           )}
           {can('reconciliation', 'export') && (
           <a className="btn" href="/api/reconciliation/export" download>
-            <Icon name="download" size={16} /> Export Form
+            <Icon name="download" size={16} /> {t('Export Form')}
           </a>
           )}
         </div>
@@ -261,50 +264,50 @@ function ReconciliationPage() {
       {/* KPI Cards */}
       <div className="grid grid-4" style={{ marginBottom: 16 }}>
         <div className="card stat">
-          <div className="stat-label">Total Bank Balance</div>
+          <div className="stat-label">{t('Total Bank Balance')}</div>
           <div className="stat-value" style={{ color: 'var(--brand-2)' }}>
-            ETB {money(summary?.total_balance || 0)}
+            {t('ETB')} {money(summary?.total_balance || 0)}
           </div>
-          <div className="stat-sub">Across {accounts?.length || 0} Bank Accounts</div>
+          <div className="stat-sub">{t('Across {n} Bank Accounts', { n: accounts?.length || 0 })}</div>
         </div>
 
         <div className="card stat">
-          <div className="stat-label">Purchases (Debits) vs Expected</div>
+          <div className="stat-label">{t('Purchases (Debits) vs Expected')}</div>
           <div className="stat-value">
-            ETB {money(summary?.debit?.total_bank_debit || 0)}
+            {t('ETB')} {money(summary?.debit?.total_bank_debit || 0)}
           </div>
           <div className="stat-sub" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span>Exp: {money(summary?.debit?.expected_purchases || 0)}</span>
+            <span>{t('Exp: {amount}', { amount: money(summary?.debit?.expected_purchases || 0) })}</span>
             <Badge
               tone={Math.abs(summary?.debit?.variance || 0) < 0.01 ? 'good' : 'warn'}
             >
-              Diff: {money(summary?.debit?.variance || 0)}
+              {t('Diff: {amount}', { amount: money(summary?.debit?.variance || 0) })}
             </Badge>
           </div>
         </div>
 
         <div className="card stat">
-          <div className="stat-label">Sales (Credits) vs Expected</div>
+          <div className="stat-label">{t('Sales (Credits) vs Expected')}</div>
           <div className="stat-value">
-            ETB {money(summary?.credit?.total_bank_credit || 0)}
+            {t('ETB')} {money(summary?.credit?.total_bank_credit || 0)}
           </div>
           <div className="stat-sub" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span>Exp: {money(summary?.credit?.expected_sales || 0)}</span>
+            <span>{t('Exp: {amount}', { amount: money(summary?.credit?.expected_sales || 0) })}</span>
             <Badge
               tone={Math.abs(summary?.credit?.variance || 0) < 0.01 ? 'good' : 'warn'}
             >
-              Diff: {money(summary?.credit?.variance || 0)}
+              {t('Diff: {amount}', { amount: money(summary?.credit?.variance || 0) })}
             </Badge>
           </div>
         </div>
 
         <div className="card stat">
-          <div className="stat-label">Reconciliation Progress</div>
+          <div className="stat-label">{t('Reconciliation Progress')}</div>
           <div className="stat-value" style={{ color: 'var(--good)' }}>
             {summary?.debit?.reconciliation_rate || 0}% / {summary?.credit?.reconciliation_rate || 0}%
           </div>
           <div className="stat-sub">
-            P: {summary?.debit?.reconciled_count || 0}/{summary?.debit?.purchases_count || 0} · S: {summary?.credit?.reconciled_count || 0}/{summary?.credit?.sales_count || 0}
+            {t('P: {done}/{total}', { done: summary?.debit?.reconciled_count || 0, total: summary?.debit?.purchases_count || 0 })} · {t('S: {done}/{total}', { done: summary?.credit?.reconciled_count || 0, total: summary?.credit?.sales_count || 0 })}
           </div>
         </div>
       </div>
@@ -315,27 +318,27 @@ function ReconciliationPage() {
           className={`tab ${activeTab === 'statement' ? 'active' : ''}`}
           onClick={() => setActiveTab('statement')}
         >
-          <Icon name="bank" size={15} /> Bank Statements (Bank 01 - 10)
+          <Icon name="bank" size={15} /> {t('Bank Statements (Bank 01 - 10)')}
         </button>
         <button
           className={`tab ${activeTab === 'purchases' ? 'active' : ''}`}
           onClick={() => setActiveTab('purchases')}
         >
-          <Icon name="purchases" size={15} /> Purchases Reconciliation
+          <Icon name="purchases" size={15} /> {t('Purchases Reconciliation')}
           {purchasesRec ? ` (${purchasesRec.length})` : ''}
         </button>
         <button
           className={`tab ${activeTab === 'sales' ? 'active' : ''}`}
           onClick={() => setActiveTab('sales')}
         >
-          <Icon name="sales" size={15} /> Sales Reconciliation
+          <Icon name="sales" size={15} /> {t('Sales Reconciliation')}
           {salesRec ? ` (${salesRec.length})` : ''}
         </button>
         <button
           className={`tab ${activeTab === 'accounts' ? 'active' : ''}`}
           onClick={() => setActiveTab('accounts')}
         >
-          <Icon name="settings" size={15} /> Bank Accounts Setup
+          <Icon name="settings" size={15} /> {t('Bank Accounts Setup')}
         </button>
       </div>
 
@@ -373,7 +376,7 @@ function ReconciliationPage() {
                     transition: 'all 0.15s ease',
                   }}
                 >
-                  <span style={{ fontWeight: 700 }}>Bank {String(acc.account_no).padStart(2, '0')}:</span>
+                  <span style={{ fontWeight: 700 }}>{t('Bank {no}:', { no: String(acc.account_no).padStart(2, '0') })}</span>
                   <span>{acc.bank_name}</span>
                   <span
                     style={{
@@ -396,11 +399,11 @@ function ReconciliationPage() {
               title={
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <span>
-                    Bank {String(currentAccount.account_no).padStart(2, '0')} — {currentAccount.bank_name} ({currentAccount.account_name || 'Operating Account'})
+                    {t('Bank {no}', { no: String(currentAccount.account_no).padStart(2, '0') })} — {currentAccount.bank_name} ({currentAccount.account_name || t('Operating Account')})
                   </span>
                   {currentAccount.account_number && (
                     <span style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 400 }}>
-                      Acc: {currentAccount.account_number}
+                      {t('Acc: {number}', { number: currentAccount.account_number })}
                     </span>
                   )}
                 </div>
@@ -409,7 +412,7 @@ function ReconciliationPage() {
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <input
                     type="search"
-                    placeholder="Search codes, remarks..."
+                    placeholder={t('Search codes, remarks...')}
                     value={filters.statement.search}
                     onChange={(e) => setFilter('statement', 'search', e.target.value)}
                     style={{ padding: '6px 12px', fontSize: 13, width: 200 }}
@@ -422,7 +425,7 @@ function ReconciliationPage() {
                       setShowTxModal(true);
                     }}
                   >
-                    <Icon name="plus" size={14} /> Add Entry
+                    <Icon name="plus" size={14} /> {t('Add Entry')}
                   </button>
                   )}
                   {can('reconciliation', 'edit') && (
@@ -433,7 +436,7 @@ function ReconciliationPage() {
                       setShowAccountModal(true);
                     }}
                   >
-                    <Icon name="settings" size={14} /> Edit Bank
+                    <Icon name="settings" size={14} /> {t('Edit Bank')}
                   </button>
                   )}
                 </div>
@@ -443,9 +446,9 @@ function ReconciliationPage() {
                 <Loading error={errorTx} />
               ) : !transactions || !transactions.length ? (
                 <Empty>
-                  No transactions recorded for Bank {String(currentAccount.account_no).padStart(2, '0')} ({currentAccount.bank_name}).
+                  {t('No transactions recorded for Bank {no} ({bank}).', { no: String(currentAccount.account_no).padStart(2, '0'), bank: currentAccount.bank_name })}
                   <br />
-                  Click <strong>&quot;Add Entry&quot;</strong> or <strong>&quot;Import Form&quot;</strong> to add bank entries.
+                  {t('Click "Add Entry" or "Import Form" to add bank entries.')}
                 </Empty>
               ) : (
                 <div className="table-wrap">
@@ -453,17 +456,17 @@ function ReconciliationPage() {
                     <thead>
                       <tr>
                         <th style={{ width: 45 }}>#</th>
-                        <th>Bank Code</th>
-                        <th>Value Date</th>
-                        <th style={{ background: 'rgba(59, 71, 214, 0.05)' }}>Pur. Code 1 &amp; 2</th>
-                        <th className="num" style={{ background: 'rgba(59, 71, 214, 0.05)' }}>Debit (Paid)</th>
-                        <th className="num" style={{ background: 'rgba(59, 71, 214, 0.05)' }}>Expected</th>
-                        <th className="num" style={{ background: 'rgba(59, 71, 214, 0.05)' }}>Diff</th>
-                        <th style={{ background: 'rgba(235, 104, 52, 0.05)' }}>Sales Code 1 &amp; 2</th>
-                        <th className="num" style={{ background: 'rgba(235, 104, 52, 0.05)' }}>Credit (Recv)</th>
-                        <th className="num" style={{ background: 'rgba(235, 104, 52, 0.05)' }}>Expected</th>
-                        <th className="num" style={{ background: 'rgba(235, 104, 52, 0.05)' }}>Diff</th>
-                        <th style={{ width: 80 }}>Actions</th>
+                        <th>{t('Bank Code')}</th>
+                        <th>{t('Value Date')}</th>
+                        <th style={{ background: 'rgba(59, 71, 214, 0.05)' }}>{t('Pur. Code 1 & 2')}</th>
+                        <th className="num" style={{ background: 'rgba(59, 71, 214, 0.05)' }}>{t('Debit (Paid)')}</th>
+                        <th className="num" style={{ background: 'rgba(59, 71, 214, 0.05)' }}>{t('Expected')}</th>
+                        <th className="num" style={{ background: 'rgba(59, 71, 214, 0.05)' }}>{t('Diff')}</th>
+                        <th style={{ background: 'rgba(235, 104, 52, 0.05)' }}>{t('Sales Code 1 & 2')}</th>
+                        <th className="num" style={{ background: 'rgba(235, 104, 52, 0.05)' }}>{t('Credit (Recv)')}</th>
+                        <th className="num" style={{ background: 'rgba(235, 104, 52, 0.05)' }}>{t('Expected')}</th>
+                        <th className="num" style={{ background: 'rgba(235, 104, 52, 0.05)' }}>{t('Diff')}</th>
+                        <th style={{ width: 80 }}>{t('Actions')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -555,9 +558,9 @@ function ReconciliationPage() {
                                   setEditingTx(tx);
                                   setShowTxModal(true);
                                 }}
-                                title="Edit entry"
+                                title={t('Edit entry')}
                               >
-                                Edit
+                                {t('Edit')}
                               </button>
                               )}
                               {can('reconciliation', 'delete') && (
@@ -565,7 +568,7 @@ function ReconciliationPage() {
                                 className="side-btn"
                                 style={{ color: 'var(--bad)' }}
                                 onClick={() => handleDeleteTx(tx.id)}
-                                title="Delete entry"
+                                title={t('Delete entry')}
                               >
                                 &times;
                               </button>
@@ -586,7 +589,7 @@ function ReconciliationPage() {
       {/* Tab 2: Purchases Reconciliation View */}
       {activeTab === 'purchases' && (
         <Card
-          title="Purchases Bank Reconciliation"
+          title={t('Purchases Bank Reconciliation')}
           actions={
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <select
@@ -594,15 +597,15 @@ function ReconciliationPage() {
                 onChange={(e) => setFilter('purchases', 'status', e.target.value)}
                 style={{ padding: '6px 10px', fontSize: 13 }}
               >
-                <option value="all">All Statuses</option>
-                <option value="reconciled">Reconciled</option>
-                <option value="partial">Partial</option>
-                <option value="unreconciled">Unreconciled</option>
-                <option value="overpaid">Overpaid</option>
+                <option value="all">{t('All Statuses')}</option>
+                <option value="reconciled">{t('Reconciled')}</option>
+                <option value="partial">{t('Partial')}</option>
+                <option value="unreconciled">{t('Unreconciled')}</option>
+                <option value="overpaid">{t('Overpaid')}</option>
               </select>
               <input
                 type="search"
-                placeholder="Search purchase, TIN, supplier..."
+                placeholder={t('Search purchase, TIN, supplier...')}
                 value={filters.purchases.search}
                 onChange={(e) => setFilter('purchases', 'search', e.target.value)}
                 style={{ padding: '6px 12px', fontSize: 13, width: 220 }}
@@ -613,26 +616,26 @@ function ReconciliationPage() {
           {loadingPur ? (
             <Loading error={errorPur} />
           ) : !purchasesRec || !purchasesRec.length ? (
-            <Empty>No purchase records found matching your filters.</Empty>
+            <Empty>{t('No purchase records found matching your filters.')}</Empty>
           ) : (
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th>#</th>
-                    <th>Purchase Code</th>
-                    <th>Bank Code(s)</th>
-                    <th>Date</th>
-                    <th>Supplier / TIN</th>
-                    <th>Receipt No</th>
-                    <th className="num">Before VAT</th>
-                    <th className="num">VAT (15%)</th>
-                    <th className="num">Total</th>
-                    <th className="num">WH</th>
-                    <th className="num">Expected @ Bank</th>
-                    <th className="num">Amount In Bank</th>
-                    <th className="num">Diff</th>
-                    <th>Status</th>
+                    <th>{t('Purchase Code')}</th>
+                    <th>{t('Bank Code(s)')}</th>
+                    <th>{t('Date')}</th>
+                    <th>{t('Supplier / TIN')}</th>
+                    <th>{t('Receipt No')}</th>
+                    <th className="num">{t('Before VAT')}</th>
+                    <th className="num">{t('VAT (15%)')}</th>
+                    <th className="num">{t('Total')}</th>
+                    <th className="num">{t('WH')}</th>
+                    <th className="num">{t('Expected @ Bank')}</th>
+                    <th className="num">{t('Amount In Bank')}</th>
+                    <th className="num">{t('Diff')}</th>
+                    <th>{t('Status')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -660,7 +663,7 @@ function ReconciliationPage() {
                       <td>{date(p.date)}</td>
                       <td>
                         <div>{p.party_name || '—'}</div>
-                        {p.party_tin && <div style={{ fontSize: 11, color: 'var(--muted)' }}>TIN: {p.party_tin}</div>}
+                        {p.party_tin && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{t('TIN')}: {p.party_tin}</div>}
                       </td>
                       <td>{p.receipt_no || '—'}</td>
                       <td className="num">{money(p.total_before_vat)}</td>
@@ -684,7 +687,7 @@ function ReconciliationPage() {
                               : 'bad'
                           }
                         >
-                          {p.status}
+                          {t(p.status)}
                         </Badge>
                       </td>
                     </tr>
@@ -699,7 +702,7 @@ function ReconciliationPage() {
       {/* Tab 3: Sales Reconciliation View */}
       {activeTab === 'sales' && (
         <Card
-          title="Sales Bank Reconciliation"
+          title={t('Sales Bank Reconciliation')}
           actions={
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <select
@@ -707,15 +710,15 @@ function ReconciliationPage() {
                 onChange={(e) => setFilter('sales', 'status', e.target.value)}
                 style={{ padding: '6px 10px', fontSize: 13 }}
               >
-                <option value="all">All Statuses</option>
-                <option value="reconciled">Reconciled</option>
-                <option value="partial">Partial</option>
-                <option value="unreconciled">Unreconciled</option>
-                <option value="overcollected">Overcollected</option>
+                <option value="all">{t('All Statuses')}</option>
+                <option value="reconciled">{t('Reconciled')}</option>
+                <option value="partial">{t('Partial')}</option>
+                <option value="unreconciled">{t('Unreconciled')}</option>
+                <option value="overcollected">{t('Overcollected')}</option>
               </select>
               <input
                 type="search"
-                placeholder="Search sales, TIN, customer..."
+                placeholder={t('Search sales, TIN, customer...')}
                 value={filters.sales.search}
                 onChange={(e) => setFilter('sales', 'search', e.target.value)}
                 style={{ padding: '6px 12px', fontSize: 13, width: 220 }}
@@ -726,26 +729,26 @@ function ReconciliationPage() {
           {loadingSal ? (
             <Loading error={errorSal} />
           ) : !salesRec || !salesRec.length ? (
-            <Empty>No sales records found matching your filters.</Empty>
+            <Empty>{t('No sales records found matching your filters.')}</Empty>
           ) : (
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th>#</th>
-                    <th>Sales Code</th>
-                    <th>Bank Code(s)</th>
-                    <th>Date</th>
-                    <th>Customer / TIN</th>
-                    <th>Receipt No</th>
-                    <th className="num">Before VAT</th>
-                    <th className="num">VAT (15%)</th>
-                    <th className="num">Total</th>
-                    <th className="num">WH</th>
-                    <th className="num">Expected @ Bank</th>
-                    <th className="num">Amount In Bank</th>
-                    <th className="num">Diff</th>
-                    <th>Status</th>
+                    <th>{t('Sales Code')}</th>
+                    <th>{t('Bank Code(s)')}</th>
+                    <th>{t('Date')}</th>
+                    <th>{t('Customer / TIN')}</th>
+                    <th>{t('Receipt No')}</th>
+                    <th className="num">{t('Before VAT')}</th>
+                    <th className="num">{t('VAT (15%)')}</th>
+                    <th className="num">{t('Total')}</th>
+                    <th className="num">{t('WH')}</th>
+                    <th className="num">{t('Expected @ Bank')}</th>
+                    <th className="num">{t('Amount In Bank')}</th>
+                    <th className="num">{t('Diff')}</th>
+                    <th>{t('Status')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -773,7 +776,7 @@ function ReconciliationPage() {
                       <td>{date(s.date)}</td>
                       <td>
                         <div>{s.party_name || '—'}</div>
-                        {s.party_tin && <div style={{ fontSize: 11, color: 'var(--muted)' }}>TIN: {s.party_tin}</div>}
+                        {s.party_tin && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{t('TIN')}: {s.party_tin}</div>}
                       </td>
                       <td>{s.receipt_no || '—'}</td>
                       <td className="num">{money(s.total_before_vat)}</td>
@@ -797,7 +800,7 @@ function ReconciliationPage() {
                               : 'bad'
                           }
                         >
-                          {s.status}
+                          {t(s.status)}
                         </Badge>
                       </td>
                     </tr>
@@ -812,7 +815,7 @@ function ReconciliationPage() {
       {/* Tab 4: Bank Accounts Setup */}
       {activeTab === 'accounts' && (
         <Card
-          title="Bank Accounts Configuration (Bank 01 to Bank 10)"
+          title={t('Bank Accounts Configuration (Bank 01 to Bank 10)')}
           actions={can('reconciliation', 'create') && (
             <button
               className="btn btn-primary"
@@ -827,7 +830,7 @@ function ReconciliationPage() {
                 setShowAccountModal(true);
               }}
             >
-              <Icon name="plus" size={14} /> Add Bank Account
+              <Icon name="plus" size={14} /> {t('Add Bank Account')}
             </button>
           )
           }
@@ -836,23 +839,23 @@ function ReconciliationPage() {
             <table>
               <thead>
                 <tr>
-                  <th>No</th>
-                  <th>Bank Institution</th>
-                  <th>Account Name</th>
-                  <th>Account Number</th>
-                  <th className="num">Opening Bal.</th>
-                  <th className="num">Debits (Out)</th>
-                  <th className="num">Credits (In)</th>
-                  <th className="num">Current Balance</th>
-                  <th>Transactions</th>
-                  <th>Actions</th>
+                  <th>{t('No.')}</th>
+                  <th>{t('Bank Institution')}</th>
+                  <th>{t('Account Name')}</th>
+                  <th>{t('Account Number')}</th>
+                  <th className="num">{t('Opening Bal.')}</th>
+                  <th className="num">{t('Debits (Out)')}</th>
+                  <th className="num">{t('Credits (In)')}</th>
+                  <th className="num">{t('Current Balance')}</th>
+                  <th>{t('Transactions')}</th>
+                  <th>{t('Actions')}</th>
                 </tr>
               </thead>
               <tbody>
                 {(accounts || []).map((acc) => (
                   <tr key={acc.id}>
                     <td>
-                      <strong>Bank {String(acc.account_no).padStart(2, '0')}</strong>
+                      <strong>{t('Bank {no}', { no: String(acc.account_no).padStart(2, '0') })}</strong>
                     </td>
                     <td>
                       <span className="badge badge-brand">{acc.bank_name}</span>
@@ -865,7 +868,7 @@ function ReconciliationPage() {
                     <td className="num" style={{ fontWeight: 700, color: 'var(--brand-2)' }}>
                       {money(acc.current_balance)}
                     </td>
-                    <td>{acc.tx_count} rows</td>
+                    <td>{t('{n} rows', { n: acc.tx_count ?? 0 })}</td>
                     <td>
                       {can('reconciliation', 'edit') && (
                       <button
@@ -875,7 +878,7 @@ function ReconciliationPage() {
                           setShowAccountModal(true);
                         }}
                       >
-                        Edit
+                        {t('Edit')}
                       </button>
                       )}
                     </td>
@@ -955,6 +958,7 @@ interface TransactionModalProps {
 
 function TransactionModal({ tx, accounts, defaultAccountId, onClose, onSaved }: TransactionModalProps) {
   const toast = useToast();
+  const { t } = useT();
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<Record<string, any>>({});
 
@@ -979,10 +983,10 @@ function TransactionModal({ tx, accounts, defaultAccountId, onClose, onSaved }: 
     try {
       if (tx?.id) {
         await api.put(`/reconciliation/transactions/${tx.id}`, form);
-        toast('Bank entry updated');
+        toast(t('Bank entry updated'));
       } else {
         await api.post('/reconciliation/transactions', form);
-        toast('Bank entry recorded');
+        toast(t('Bank entry recorded'));
       }
       onSaved();
     } catch (e: any) {
@@ -995,15 +999,15 @@ function TransactionModal({ tx, accounts, defaultAccountId, onClose, onSaved }: 
   return (
     <Modal
       width={720}
-      title={tx?.id ? `Edit Bank Entry (${tx.bank_code})` : 'New Bank Statement Entry'}
+      title={tx?.id ? t('Edit Bank Entry ({code})', { code: tx.bank_code }) : t('New Bank Statement Entry')}
       onClose={onClose}
       footer={
         <>
           <button className="btn" onClick={onClose} disabled={saving}>
-            Cancel
+            {t('Cancel')}
           </button>
           <button className="btn btn-primary" onClick={save} disabled={saving}>
-            {saving ? 'Saving...' : tx?.id ? 'Update Entry' : 'Save Entry'}
+            {saving ? t('Saving...') : tx?.id ? t('Update Entry') : t('Save Entry')}
           </button>
         </>
       }
@@ -1011,33 +1015,29 @@ function TransactionModal({ tx, accounts, defaultAccountId, onClose, onSaved }: 
       {err._ && <div className="alert alert-error">{err._}</div>}
 
       <div className="grid grid-3" style={{ gap: 12, marginBottom: 16 }}>
-        <Field label="Bank Account" error={err.bank_account_id}>
+        <Field label={t('Bank Account')} error={err.bank_account_id}>
           <select
             value={form.bank_account_id}
             onChange={(e) => setForm({ ...form, bank_account_id: Number(e.target.value) })}
           >
             {accounts.map((a) => (
               <option key={a.id} value={a.id}>
-                Bank {String(a.account_no).padStart(2, '0')}: {a.bank_name} ({a.account_name})
+                {t('Bank {no}:', { no: String(a.account_no).padStart(2, '0') })} {a.bank_name} ({a.account_name})
               </option>
             ))}
           </select>
         </Field>
 
-        <Field label="Bank Code" hint="Leave blank to auto-generate" error={err.bank_code}>
+        <Field label={t('Bank Code')} hint={t('Leave blank to auto-generate')} error={err.bank_code}>
           <input
-            placeholder="e.g. CBE001"
+            placeholder={t('e.g. {example}', { example: 'CBE001' })}
             value={form.bank_code}
             onChange={(e) => setForm({ ...form, bank_code: e.target.value })}
           />
         </Field>
 
-        <Field label="Value Date" error={err.value_date}>
-          <input
-            type="date"
-            value={form.value_date}
-            onChange={(e) => setForm({ ...form, value_date: e.target.value })}
-          />
+        <Field label={t('Value Date')} error={err.value_date}>
+          <DateInput value={form.value_date} invalid={!!err.value_date} onChange={(v) => setForm({ ...form, value_date: v })} />
         </Field>
       </div>
 
@@ -1046,24 +1046,24 @@ function TransactionModal({ tx, accounts, defaultAccountId, onClose, onSaved }: 
         {/* Purchases (Debit) Section */}
         <div style={{ background: 'rgba(59, 71, 214, 0.03)', padding: 14, borderRadius: 8, border: '1px solid var(--border)' }}>
           <h3 style={{ marginBottom: 10, color: 'var(--brand-2)', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Icon name="purchases" size={16} /> Outgoing Payment (Debit)
+            <Icon name="purchases" size={16} /> {t('Outgoing Payment (Debit)')}
           </h3>
           <div className="grid" style={{ gap: 10 }}>
-            <Field label="Purchase Code 1" hint="e.g. P0001 or P00001">
+            <Field label={t('Purchase Code 1')} hint={t('e.g. {a} or {b}', { a: 'P0001', b: 'P00001' })}>
               <input
                 placeholder="P0001"
                 value={form.purchase_code_1}
                 onChange={(e) => setForm({ ...form, purchase_code_1: e.target.value })}
               />
             </Field>
-            <Field label="Purchase Code 2 (optional)">
+            <Field label={t('Purchase Code 2 (optional)')}>
               <input
                 placeholder="P0002"
                 value={form.purchase_code_2}
                 onChange={(e) => setForm({ ...form, purchase_code_2: e.target.value })}
               />
             </Field>
-            <Field label="Debit Amount (ETB)" error={err.debit}>
+            <Field label={t('Debit Amount (ETB)')} error={err.debit}>
               <input
                 type="number"
                 step="0.01"
@@ -1072,9 +1072,9 @@ function TransactionModal({ tx, accounts, defaultAccountId, onClose, onSaved }: 
                 onChange={(e) => setForm({ ...form, debit: e.target.value })}
               />
             </Field>
-            <Field label="Debit Remark">
+            <Field label={t('Debit Remark')}>
               <input
-                placeholder="Check #, supplier name, etc."
+                placeholder={t('Check #, supplier name, etc.')}
                 value={form.purchase_remark}
                 onChange={(e) => setForm({ ...form, purchase_remark: e.target.value })}
               />
@@ -1085,24 +1085,24 @@ function TransactionModal({ tx, accounts, defaultAccountId, onClose, onSaved }: 
         {/* Sales (Credit) Section */}
         <div style={{ background: 'rgba(235, 104, 52, 0.03)', padding: 14, borderRadius: 8, border: '1px solid var(--border)' }}>
           <h3 style={{ marginBottom: 10, color: 'var(--warn)', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Icon name="sales" size={16} /> Incoming Receipt (Credit)
+            <Icon name="sales" size={16} /> {t('Incoming Receipt (Credit)')}
           </h3>
           <div className="grid" style={{ gap: 10 }}>
-            <Field label="Sales Code 1" hint="e.g. S0001 or S00001">
+            <Field label={t('Sales Code 1')} hint={t('e.g. {a} or {b}', { a: 'S0001', b: 'S00001' })}>
               <input
                 placeholder="S0001"
                 value={form.sales_code_1}
                 onChange={(e) => setForm({ ...form, sales_code_1: e.target.value })}
               />
             </Field>
-            <Field label="Sales Code 2 (optional)">
+            <Field label={t('Sales Code 2 (optional)')}>
               <input
                 placeholder="S0002"
                 value={form.sales_code_2}
                 onChange={(e) => setForm({ ...form, sales_code_2: e.target.value })}
               />
             </Field>
-            <Field label="Credit Amount (ETB)" error={err.credit}>
+            <Field label={t('Credit Amount (ETB)')} error={err.credit}>
               <input
                 type="number"
                 step="0.01"
@@ -1111,9 +1111,9 @@ function TransactionModal({ tx, accounts, defaultAccountId, onClose, onSaved }: 
                 onChange={(e) => setForm({ ...form, credit: e.target.value })}
               />
             </Field>
-            <Field label="Credit Remark">
+            <Field label={t('Credit Remark')}>
               <input
-                placeholder="Deposit slip, customer, etc."
+                placeholder={t('Deposit slip, customer, etc.')}
                 value={form.sales_remark}
                 onChange={(e) => setForm({ ...form, sales_remark: e.target.value })}
               />
@@ -1146,6 +1146,7 @@ interface AccountModalProps {
 
 function AccountModal({ account, onClose, onSaved }: AccountModalProps) {
   const toast = useToast();
+  const { t } = useT();
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<Record<string, any>>({});
 
@@ -1174,10 +1175,10 @@ function AccountModal({ account, onClose, onSaved }: AccountModalProps) {
     try {
       if (account?.id) {
         await api.put(`/reconciliation/banks/${account.id}`, form);
-        toast('Bank account updated');
+        toast(t('Bank account updated'));
       } else {
         await api.post('/reconciliation/banks', form);
-        toast('Bank account added');
+        toast(t('Bank account added'));
       }
       onSaved();
     } catch (e: any) {
@@ -1190,15 +1191,15 @@ function AccountModal({ account, onClose, onSaved }: AccountModalProps) {
   return (
     <Modal
       width={520}
-      title={account?.id ? `Configure Bank ${String(account.account_no).padStart(2, '0')}` : 'New Bank Account'}
+      title={account?.id ? t('Configure Bank {no}', { no: String(account.account_no).padStart(2, '0') }) : t('New Bank Account')}
       onClose={onClose}
       footer={
         <>
           <button className="btn" onClick={onClose} disabled={saving}>
-            Cancel
+            {t('Cancel')}
           </button>
           <button className="btn btn-primary" onClick={save} disabled={saving}>
-            {saving ? 'Saving...' : 'Save Account'}
+            {saving ? t('Saving...') : t('Save Account')}
           </button>
         </>
       }
@@ -1206,7 +1207,7 @@ function AccountModal({ account, onClose, onSaved }: AccountModalProps) {
       {err._ && <div className="alert alert-error">{err._}</div>}
       <div className="grid" style={{ gap: 12 }}>
         <div className="grid grid-2" style={{ gap: 12 }}>
-          <Field label="Account Tab Number" error={err.account_no}>
+          <Field label={t('Account Tab Number')} error={err.account_no}>
             <input
               type="number"
               min="1"
@@ -1216,12 +1217,12 @@ function AccountModal({ account, onClose, onSaved }: AccountModalProps) {
               disabled={!!account?.id}
             />
           </Field>
-          <Field label="Bank Institution" error={err.bank_name}>
+          <Field label={t('Bank Institution')} error={err.bank_name}>
             <select
               value={form.bank_name}
               onChange={(e) => setForm({ ...form, bank_name: e.target.value })}
             >
-              <option value="">Choose a bank</option>
+              <option value="">{t('Choose a bank')}</option>
               {bankOptions.map((b) => (
                 <option key={b.value} value={b.value}>
                   {b.value} — {b.label}
@@ -1231,24 +1232,24 @@ function AccountModal({ account, onClose, onSaved }: AccountModalProps) {
           </Field>
         </div>
 
-        <Field label="Account Display Name" error={err.account_name}>
+        <Field label={t('Account Display Name')} error={err.account_name}>
           <input
-            placeholder="e.g. Main Operating Account"
+            placeholder={t('e.g. Main Operating Account')}
             value={form.account_name}
             onChange={(e) => setForm({ ...form, account_name: e.target.value })}
           />
         </Field>
 
-        <Field label="Bank Account Number" error={err.account_number}>
+        <Field label={t('Bank Account Number')} error={err.account_number}>
           <input
-            placeholder="e.g. 1000123456789"
+            placeholder={t('e.g. {example}', { example: '1000123456789' })}
             value={form.account_number}
             onChange={(e) => setForm({ ...form, account_number: e.target.value })}
           />
         </Field>
 
         <div className="grid grid-2" style={{ gap: 12 }}>
-          <Field label="Opening Balance (ETB)" error={err.opening_balance}>
+          <Field label={t('Opening Balance (ETB)')} error={err.opening_balance}>
             <input
               type="number"
               step="0.01"
@@ -1256,7 +1257,7 @@ function AccountModal({ account, onClose, onSaved }: AccountModalProps) {
               onChange={(e) => setForm({ ...form, opening_balance: e.target.value })}
             />
           </Field>
-          <Field label="Currency">
+          <Field label={t('Currency')}>
             <input
               value={form.currency}
               onChange={(e) => setForm({ ...form, currency: e.target.value })}
@@ -1264,7 +1265,7 @@ function AccountModal({ account, onClose, onSaved }: AccountModalProps) {
           </Field>
         </div>
 
-        <Field label="Notes / Branch Info">
+        <Field label={t('Notes / Branch Info')}>
           <textarea
             rows={2}
             value={form.notes}
@@ -1286,6 +1287,7 @@ interface ImportWorkbookModalProps {
 
 function ImportWorkbookModal({ onClose, onImported }: ImportWorkbookModalProps) {
   const toast = useToast();
+  const { t } = useT();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -1296,7 +1298,7 @@ function ImportWorkbookModal({ onClose, onImported }: ImportWorkbookModalProps) 
     setErr(null);
     try {
       const data = await api.upload<{ total_imported: number }>('/reconciliation/import', file);
-      toast(`Successfully imported ${data.total_imported} bank transactions!`);
+      toast(t('Successfully imported {n} bank transactions!', { n: data.total_imported }));
       onImported();
     } catch (e: any) {
       setErr(e.message);
@@ -1308,17 +1310,17 @@ function ImportWorkbookModal({ onClose, onImported }: ImportWorkbookModalProps) 
   return (
     <Modal
       width={540}
-      title="Import Bank Reconciliation Form (.xlsx)"
+      title={t('Import Bank Reconciliation Form (.xlsx)')}
       onClose={onClose}
-      footer={<button className="btn" onClick={onClose}>Close</button>}
+      footer={<button className="btn" onClick={onClose}>{t('Close')}</button>}
     >
       {err && <div className="alert alert-error">{err}</div>}
 
       <div style={{ textAlign: 'center', padding: '20px 12px' }}>
         <p style={{ color: 'var(--text-2)', marginBottom: 20 }}>
-          Upload your <strong>EC Bank Reconciliation Form</strong> workbook.
+          {t('Upload your EC Bank Reconciliation Form workbook.')}
           <br />
-          The system reads statements from <strong>Bank 01</strong> to <strong>Bank 10</strong> sheets and synchronizes debit and credit transactions.
+          {t('The system reads statements from the Bank 01 to Bank 10 sheets and synchronizes debit and credit transactions.')}
         </p>
 
         <input
@@ -1337,7 +1339,7 @@ function ImportWorkbookModal({ onClose, onImported }: ImportWorkbookModalProps) 
             disabled={importing}
           >
             <Icon name="upload" size={18} />
-            {importing ? 'Processing workbook...' : 'Choose .xlsx workbook…'}
+            {importing ? t('Processing workbook...') : t('Choose .xlsx workbook…')}
           </button>
         </div>
       </div>

@@ -120,7 +120,7 @@ export const NAV: NavItem[] = [
   { group: 'Tax' },
   { href: '/vat', label: 'VAT Declaration', icon: 'vat' },
   { group: 'Master data' },
-  { href: '/parties', label: 'Supplier List', icon: 'suppliers' },
+  { href: '/parties', label: 'Customer List', icon: 'suppliers' },
   { href: '/products', label: 'Product List', icon: 'products' },
   { group: 'Administration' },
   { href: '/settings?tab=roles', label: 'Roles & Permissions', icon: 'shield' },

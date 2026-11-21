@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { api, ApiError } from '@/lib/api';
 import Icon from './icons';
 import { FY_MONTHS, fiscalYearLabel } from '@/lib/shared/ethiopian';
+import { useT } from '@/lib/i18n';
 
 // ---------------------------------------------------------------------------
 // Toasts
@@ -149,6 +150,7 @@ export function Field({ label, required, error, hint, className = '', children }
 
 /** Password field with a show / hide toggle. Accepts the same props as <input>. */
 export function PasswordInput({ className = '', ...rest }: { className?: string } & React.InputHTMLAttributes<HTMLInputElement>) {
+  const { t } = useT();
   const [visible, setVisible] = useState(false);
   return (
     <div className={`password-input ${className}`}>
@@ -157,9 +159,9 @@ export function PasswordInput({ className = '', ...rest }: { className?: string 
         type="button"
         className="password-toggle"
         onClick={() => setVisible((v) => !v)}
-        aria-label={visible ? 'Hide password' : 'Show password'}
+        aria-label={visible ? t('Hide password') : t('Show password')}
         aria-pressed={visible}
-        title={visible ? 'Hide password' : 'Show password'}
+        title={visible ? t('Hide password') : t('Show password')}
       >
         <Icon name={visible ? 'eyeOff' : 'eye'} size={18} />
       </button>
@@ -196,8 +198,10 @@ const TONES: Record<string, string[]> = {
   info: ['Goods WH', 'Service WH', 'Supplier', 'Customer', 'Both'],
 };
 export function Badge({ children, tone }: { children?: ReactNode; tone?: string }) {
+  const { t: tr } = useT();
   const t = tone || Object.keys(TONES).find((k) => typeof children === 'string' && TONES[k].includes(children));
-  return <span className={`badge ${t ? `badge-${t}` : ''}`}>{children}</span>;
+  // Tone is matched on the English value; the text is shown in the chosen language.
+  return <span className={`badge ${t ? `badge-${t}` : ''}`}>{typeof children === 'string' ? tr(children) : children}</span>;
 }
 
 export interface ModalProps {
@@ -212,6 +216,7 @@ export interface ModalProps {
 }
 
 export function Modal({ title, subtitle, icon, onClose, children, footer, width, className = '' }: ModalProps) {
+  const { t } = useT();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
@@ -230,7 +235,7 @@ export function Modal({ title, subtitle, icon, onClose, children, footer, width,
               {subtitle && <p>{subtitle}</p>}
             </div>
           </div>
-          <button className="modal-close" onClick={onClose} aria-label="Close"><Icon name="close" size={18} /></button>
+          <button className="modal-close" onClick={onClose} aria-label={t('Close')}><Icon name="close" size={18} /></button>
         </div>
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-foot">{footer}</div>}
@@ -241,8 +246,9 @@ export function Modal({ title, subtitle, icon, onClose, children, footer, width,
 }
 
 export function Loading({ error }: { error?: ApiError | Error | null }) {
+  const { t } = useT();
   if (error) return <div className="alert alert-error">{error.message}</div>;
-  return <div className="empty">Loading…</div>;
+  return <div className="empty">{t('Loading…')}</div>;
 }
 
 export function Empty({ children }: { children?: ReactNode }) {
@@ -265,15 +271,17 @@ export interface PeriodFilterProps {
 /** Fiscal-year + optional month filter. */
 export function PeriodFilter({ fy, month, onChange, allowAllMonths = true, showMonth = true }: PeriodFilterProps) {
   const { data: years } = useFetch<number[]>('/fiscal-years');
+  const { t } = useT();
+  const fyLabel = (y: number) => fiscalYearLabel(y).replace(/^FY/, t('FY')).replace(/E\.C\.$/, t('E.C.'));
   return (
     <div className="row">
-      <select value={fy || ''} onChange={(e) => onChange({ fy: +e.target.value, month: month ?? '' })} aria-label="Fiscal year">
-        {(years || (fy ? [fy] : [])).map((y) => <option key={y} value={y}>{fiscalYearLabel(y)}</option>)}
+      <select value={fy || ''} onChange={(e) => onChange({ fy: +e.target.value, month: month ?? '' })} aria-label={t('Fiscal year')}>
+        {(years || (fy ? [fy] : [])).map((y) => <option key={y} value={y}>{fyLabel(y)}</option>)}
       </select>
       {showMonth && (
-        <select value={month ?? ''} onChange={(e) => onChange({ fy: fy as number, month: e.target.value === '' ? '' : +e.target.value })} aria-label="Month">
-          {allowAllMonths && <option value="">All months</option>}
-          {FY_MONTHS.map((m, i) => <option key={m} value={i}>{m}</option>)}
+        <select value={month ?? ''} onChange={(e) => onChange({ fy: fy as number, month: e.target.value === '' ? '' : +e.target.value })} aria-label={t('Month')}>
+          {allowAllMonths && <option value="">{t('All months')}</option>}
+          {FY_MONTHS.map((m, i) => <option key={m} value={i}>{t(m)}</option>)}
         </select>
       )}
     </div>

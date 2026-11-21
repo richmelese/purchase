@@ -3,10 +3,12 @@
 import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useSession } from '@/components/session';
-import { api, qs } from '@/lib/api';
+import { api, qs, translateMessage } from '@/lib/api';
+import { useT } from '@/lib/i18n';
 import { money, date, today } from '@/lib/format';
 import { PageHeader, Card, Badge, Loading, Empty, Field, Select, Modal, useFetch, useToast } from '@/components/ui';
 import type { Party } from '@/lib/types';
+import DateInput from '@/components/DateInput';
 
 type CrvCategory = 'credit_collection' | 'loan' | 'shareholder_contribution' | 'other_refund';
 
@@ -62,6 +64,8 @@ function NewCrvModal({ onClose, onSaved, initialCategory, initialKind, initialIn
   initialCategory: CrvCategory; initialKind: 'P' | 'S'; initialInvoiceId: string;
 }) {
   const toast = useToast();
+  const { t } = useT();
+  const fe = (v: unknown) => (v ? translateMessage(v) : undefined);
   const { data: parties } = useFetch<Party[]>('/parties');
   const [kind, setKind] = useState<'P' | 'S'>(initialKind || 'P');
   const { data: purchases } = useFetch<CreditInvoice[]>('/purchases' + qs({ payment: 'Credit' }));
@@ -87,7 +91,7 @@ function NewCrvModal({ onClose, onSaved, initialCategory, initialKind, initialIn
         ? { date: f.date, amount: f.amount, category: f.category, invoice_id: Number(f.invoice_id) || null, method: f.method, reference: f.reference, note: f.note }
         : { ...f, invoice_id: null, party_id: f.party_id || null };
       const r = await api.post<CrvRow>('/crv', body);
-      toast(`CRV #${r.crv_no} recorded`);
+      toast(t('CRV #{no} recorded', { no: r.crv_no }));
       setErr({});
       onSaved(r);
     } catch (e: any) {
@@ -99,47 +103,47 @@ function NewCrvModal({ onClose, onSaved, initialCategory, initialKind, initialIn
 
   return (
     <Modal
-      title="New CRV"
-      subtitle="Cash / credit receipt voucher"
+      title={t('New CRV')}
+      subtitle={t('Cash / credit receipt voucher')}
       icon="wallet"
       onClose={onClose}
-      footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save CRV'}</button></>}
+      footer={<><button className="btn" onClick={onClose}>{t('Cancel')}</button><button className="btn btn-primary" disabled={saving} onClick={save}>{saving ? t('Saving…') : t('Save CRV')}</button></>}
     >
       {err._ && <div className="alert alert-error">{err._}</div>}
       <div className="form-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))' }}>
-        <Field label="Category" required error={err.category} className="span-2">
-          <Select options={CATEGORY_OPTIONS} value={f.category} onChange={(v) => setF({ ...f, category: v as CrvCategory, invoice_id: '', party_id: '' })} />
+        <Field label={t('Category')} required error={fe(err.category)} className="span-2">
+          <Select options={CATEGORY_OPTIONS.map((o) => ({ ...o, label: t(o.label) }))} value={f.category} onChange={(v) => setF({ ...f, category: v as CrvCategory, invoice_id: '', party_id: '' })} />
         </Field>
         {isCollection ? (
           <>
-            <Field label="Purchase or sale">
+            <Field label={t('Purchase or sale')}>
               <select value={kind} onChange={(e) => { setKind(e.target.value as 'P' | 'S'); setF({ ...f, invoice_id: '' }); }}>
-                <option value="P">Purchase</option>
-                <option value="S">Sale</option>
+                <option value="P">{t('Purchase')}</option>
+                <option value="S">{t('Sale')}</option>
               </select>
             </Field>
-            <Field label="Invoice" required error={err.invoice_id}>
+            <Field label={t('Invoice')} required error={fe(err.invoice_id)}>
               <select value={f.invoice_id} onChange={(e) => pickInvoice(e.target.value)}>
-                <option value="">— Select a credit invoice —</option>
+                <option value="">{t('— Select a credit invoice —')}</option>
                 {(invoices || []).filter((i) => i.balance > 0.004).map((i) => (
-                  <option key={i.id} value={i.id}>{i.invoice_no} · {i.party_name || 'Unregistered'} · outstanding {money(i.balance)}</option>
+                  <option key={i.id} value={i.id}>{i.invoice_no} · {i.party_name || t('Unregistered')} · {t('outstanding {amount}', { amount: money(i.balance) })}</option>
                 ))}
               </select>
             </Field>
           </>
         ) : (
-          <Field label="Party" error={err.party_id} hint="Optional">
+          <Field label={t('Party')} error={fe(err.party_id)} hint={t('Optional')}>
             <select value={f.party_id} onChange={(e) => setF({ ...f, party_id: e.target.value })}>
-              <option value="">— None —</option>
+              <option value="">{t('— None —')}</option>
               {(parties || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </Field>
         )}
-        <Field label="Date" required error={err.date}><input type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></Field>
-        <Field label="Amount" required error={err.amount}><input type="number" step="any" min="0" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
-        <Field label="Method"><input value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })} placeholder="Cash / bank transfer…" /></Field>
-        <Field label="Reference"><input value={f.reference} onChange={(e) => setF({ ...f, reference: e.target.value })} placeholder="Cheque / transaction no." /></Field>
-        <Field label="Note" className="span-2"><textarea rows={2} value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
+        <Field label={t('Date')} required error={fe(err.date)}><DateInput value={f.date} invalid={!!err.date} onChange={(v) => setF({ ...f, date: v })} /></Field>
+        <Field label={t('Amount')} required error={fe(err.amount)}><input type="number" step="any" min="0" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
+        <Field label={t('Method')}><input value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })} placeholder={t('Cash / bank transfer…')} /></Field>
+        <Field label={t('Reference')}><input value={f.reference} onChange={(e) => setF({ ...f, reference: e.target.value })} placeholder={t('Cheque / transaction no.')} /></Field>
+        <Field label={t('Note')} className="span-2"><textarea rows={2} value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
       </div>
     </Modal>
   );
@@ -147,6 +151,7 @@ function NewCrvModal({ onClose, onSaved, initialCategory, initialKind, initialIn
 
 export default function CrvPage() {
   const toast = useToast();
+  const { t } = useT();
   const { can } = useSession();
   const params = useSearchParams();
   const [category, setCategory] = useState('');
@@ -155,10 +160,10 @@ export default function CrvPage() {
   const { data, error, reload } = useFetch<CrvRow[]>('/crv' + qs({ category, q }));
 
   const remove = async (row: CrvRow) => {
-    if (!confirm(`Delete CRV #${row.crv_no}?`)) return;
+    if (!confirm(t('Delete CRV #{no}?', { no: row.crv_no }))) return;
     try {
       await api.del(`/crv/${row.id}`);
-      toast(`CRV #${row.crv_no} deleted`);
+      toast(t('CRV #{no} deleted', { no: row.crv_no }));
       reload();
     } catch (e: any) {
       toast(e.message, 'error');
@@ -167,33 +172,33 @@ export default function CrvPage() {
 
   return (
     <>
-      <PageHeader title="Cash / Credit Receipt Vouchers" subtitle="Loans, shareholder contributions, other refunds and collections against invoices">
-        {can('crv', 'create') && <button className="btn btn-primary" onClick={() => setOpen(true)}>+ New CRV</button>}
+      <PageHeader title={t('Cash / Credit Receipt Vouchers')} subtitle={t('Loans, shareholder contributions, other refunds and collections against invoices')}>
+        {can('crv', 'create') && <button className="btn btn-primary" onClick={() => setOpen(true)}>{t('+ New CRV')}</button>}
       </PageHeader>
       <Card
         fill
         bodyClass=""
         title={(
           <div className="row">
-            <input type="search" placeholder="Search note, reference, party…" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />
-            <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category">
-              <option value="">All categories</option>
-              <option value="credit_collection">Credit collection</option>
-              <option value="loan">Loan received</option>
-              <option value="shareholder_contribution">Shareholder contribution</option>
-              <option value="other_refund">Other / refund</option>
+            <input type="search" placeholder={t('Search note, reference, party…')} value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />
+            <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label={t('Category')}>
+              <option value="">{t('All categories')}</option>
+              <option value="credit_collection">{t('Credit collection')}</option>
+              <option value="loan">{t('Loan received')}</option>
+              <option value="shareholder_contribution">{t('Shareholder contribution')}</option>
+              <option value="other_refund">{t('Other / refund')}</option>
             </select>
           </div>
         )}
-        actions={<span className="small muted">{data?.length ?? 0} vouchers</span>}
+        actions={<span className="small muted">{t('{n} vouchers', { n: data?.length ?? 0 })}</span>}
       >
-        {!data ? <Loading error={error} /> : !data.length ? <Empty>No CRVs yet.</Empty> : (
+        {!data ? <Loading error={error} /> : !data.length ? <Empty>{t('No CRVs yet.')}</Empty> : (
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>CRV #</th><th>Date</th><th>Category</th><th className="num">Amount</th><th>Party</th>
-                  <th>Invoice</th><th>Method</th><th>Reference</th><th>Note</th><th />
+                  <th>{t('CRV #')}</th><th>{t('Date')}</th><th>{t('Category')}</th><th className="num">{t('Amount')}</th><th>{t('Party')}</th>
+                  <th>{t('Invoice')}</th><th>{t('Method')}</th><th>{t('Reference')}</th><th>{t('Note')}</th><th />
                 </tr>
               </thead>
               <tbody>
@@ -201,15 +206,15 @@ export default function CrvPage() {
                   <tr key={r.id}>
                     <td>{r.crv_no}</td>
                     <td>{date(r.date)}</td>
-                    <td><Badge tone={CATEGORY_TONES[r.category]}>{CATEGORY_LABELS[r.category] || r.category}</Badge></td>
+                    <td><Badge tone={CATEGORY_TONES[r.category]}>{t(CATEGORY_LABELS[r.category] || r.category)}</Badge></td>
                     <td className="num">{money(r.amount)}</td>
                     <td>{r.party_name || '—'}</td>
                     <td>{r.invoice_no || '—'}</td>
-                    <td>{r.method || '—'}</td>
+                    <td>{r.method ? t(r.method) : '—'}</td>
                     <td>{r.reference || '—'}</td>
                     <td className="wrap">{r.note || ''}</td>
                     <td className="right">
-                      {can('crv', 'delete') && <button className="btn btn-sm btn-ghost" onClick={() => remove(r)}>Delete</button>}
+                      {can('crv', 'delete') && <button className="btn btn-sm btn-ghost" onClick={() => remove(r)}>{t('Delete')}</button>}
                     </td>
                   </tr>
                 ))}

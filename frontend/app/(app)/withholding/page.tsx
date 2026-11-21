@@ -5,8 +5,10 @@ import Link from 'next/link';
 import { qs } from '@/lib/api';
 import { money, date } from '@/lib/format';
 import { FY_MONTHS } from '@/lib/shared/ethiopian';
-import { PageHeader, Card, Badge, Loading, Empty, PeriodFilter, useFetch, useCurrentFy, type PeriodValue } from '@/components/ui';
+import { PageHeader, Card, Loading, Empty, PeriodFilter, useFetch, useCurrentFy, type PeriodValue } from '@/components/ui';
 import { useSession } from '@/components/session';
+import TBadge from '@/components/TBadge';
+import { useT } from '@/lib/i18n';
 
 interface WithholdingInfo {
   status: string;
@@ -33,6 +35,7 @@ interface WithholdingRow {
 
 export default function WithholdingPage() {
   const { can } = useSession();
+  const { t } = useT();
   const currentFy = useCurrentFy();
   const [kind, setKind] = useState<'P' | 'S'>('P');
   const [period, setPeriod] = useState<PeriodValue>({ fy: null as unknown as number, month: '' });
@@ -43,24 +46,24 @@ export default function WithholdingPage() {
 
   return (
     <>
-      <PageHeader title="Withholding tax" subtitle="Goods above 20,000 and services above 10,000 (taxable amount) are subject to 3% withholding">
-        {can('withholding', 'export') && <a className="btn" href={`/api/export/withholding${qs(period)}`}>Export Excel</a>}
+      <PageHeader title={t('Withholding tax')} subtitle={t('Goods above 20,000 and services above 10,000 (taxable amount) are subject to 3% withholding')}>
+        {can('withholding', 'export') && <a className="btn" href={`/api/export/withholding${qs(period)}`}>{t('Export Excel')}</a>}
       </PageHeader>
 
       <div className="tabs">
-        <button className={`tab ${kind === 'P' ? 'active' : ''}`} onClick={() => setKind('P')}>On purchases (we withhold)</button>
-        <button className={`tab ${kind === 'S' ? 'active' : ''}`} onClick={() => setKind('S')}>On sales (withheld from us)</button>
+        <button className={`tab ${kind === 'P' ? 'active' : ''}`} onClick={() => setKind('P')}>{t('On purchases (we withhold)')}</button>
+        <button className={`tab ${kind === 'S' ? 'active' : ''}`} onClick={() => setKind('S')}>{t('On sales (withheld from us)')}</button>
       </div>
 
       <Card fill bodyClass="" title={<PeriodFilter fy={period.fy} month={period.month} onChange={setPeriod} />}>
-        {!data ? <Loading error={error} /> : !data.length ? <Empty>No transactions subject to withholding in this period.</Empty> : (
+        {!data ? <Loading error={error} /> : !data.length ? <Empty>{t('No transactions subject to withholding in this period.')}</Empty> : (
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>ID</th><th>Date</th><th>Month</th><th>{kind === 'P' ? 'Seller' : 'Buyer'}</th><th>TIN</th>
-                  <th>WH status</th><th>Receipt status</th><th className="num">WH base</th><th className="num">Expected</th>
-                  <th>WH receipt</th><th>WH month</th><th className="num">Paid</th><th className="num">Outstanding</th><th>Check</th>
+                  <th>{t('ID')}</th><th>{t('Date')}</th><th>{t('Month')}</th><th>{kind === 'P' ? t('Seller') : t('Buyer')}</th><th>{t('TIN')}</th>
+                  <th>{t('WH status')}</th><th>{t('Receipt status')}</th><th className="num">{t('WH base')}</th><th className="num">{t('Expected')}</th>
+                  <th>{t('WH receipt')}</th><th>{t('WH month')}</th><th className="num">{t('Paid')}</th><th className="num">{t('Outstanding')}</th><th>{t('Check')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -68,24 +71,24 @@ export default function WithholdingPage() {
                   <tr key={r.id}>
                     <td><Link href={`${base}/${r.id}`}>{r.invoice_no}</Link></td>
                     <td>{date(r.date)}</td>
-                    <td>{FY_MONTHS[r.fy_month]}</td>
+                    <td>{t(FY_MONTHS[r.fy_month])}</td>
                     <td>{r.party_name}</td>
                     <td>{r.party_tin}</td>
-                    <td><Badge>{r.wh.status}</Badge></td>
-                    <td>{r.wh_receipt_type || <span className="muted">Not set</span>}</td>
+                    <td><TBadge value={r.wh.status} /></td>
+                    <td>{r.wh_receipt_type ? t(r.wh_receipt_type) : <span className="muted">{t('Not set')}</span>}</td>
                     <td className="num">{money(r.wh.base)}</td>
                     <td className="num">{money(r.wh.expected)}</td>
                     <td>{r.wh_receipt_no ? `${r.wh_receipt_no} · ${date(r.wh_receipt_date)}` : <span className="muted">—</span>}</td>
-                    <td>{r.wh_month}</td>
+                    <td>{r.wh_month != null && r.wh_month !== '' ? t(String(r.wh_month)) : ''}</td>
                     <td className="num">{money(r.wh.paid)}</td>
                     <td className="num" style={r.wh.outstanding > 0 ? { color: 'var(--bad)' } : undefined}>{money(r.wh.outstanding)}</td>
-                    <td>{r.penalty ? <Badge>{r.penalty}</Badge> : ''}</td>
+                    <td>{r.penalty ? <TBadge value={r.penalty} /> : ''}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan={7}>{data.length} transactions</td>
+                  <td colSpan={7}>{t('{n} transactions', { n: data.length })}</td>
                   <td className="num">{money(sum((r) => r.wh.base))}</td>
                   <td className="num">{money(sum((r) => r.wh.expected))}</td>
                   <td colSpan={2} />
@@ -98,7 +101,7 @@ export default function WithholdingPage() {
           </div>
         )}
       </Card>
-      <p className="small muted">Open a transaction to record its withholding receipt number, date and amount paid. A receipt dated in a different tax month than the transaction is flagged as a penalty risk.</p>
+      <p className="small muted">{t('Open a transaction to record its withholding receipt number, date and amount paid. A receipt dated in a different tax month than the transaction is flagged as a penalty risk.')}</p>
     </>
   );
 }

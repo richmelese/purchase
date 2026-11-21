@@ -7,10 +7,11 @@ import { PageHeader, Card, Field, Loading, PeriodFilter, Badge, useFetch, useToa
 import { useLookups, type LookupListMeta, type LookupValue } from '@/components/lookups';
 import { useSession } from '@/components/session';
 import { Modal, PasswordInput, Select } from '@/components/ui';
-import { date } from '@/lib/format';
+import { date, dateTime } from '@/lib/format';
 import { settingsTabsFor, COMPANY_RIGHTS } from '@/lib/permissions';
 import CompanyProfile from '@/components/CompanyProfile';
 import type { Party } from '@/lib/types';
+import { useT } from '@/lib/i18n';
 
 // ---------------------------------------------------------------------------
 function CompanyTab() {
@@ -45,6 +46,7 @@ const fromPercent = (pct: unknown): number | '' => (String(pct).trim() === '' ? 
 
 function TaxRules({ canEdit }: { canEdit?: boolean }) {
   const toast = useToast();
+  const { t } = useT();
   const { data, error } = useFetch<SettingsData>('/settings');
   const [f, setF] = useState<TaxForm | null>(null);
   const [err, setErr] = useState<Record<string, string>>({});
@@ -60,22 +62,22 @@ function TaxRules({ canEdit }: { canEdit?: boolean }) {
   const save = async () => {
     try {
       await api.put('/settings', { ...f, vat_rate: fromPercent(f.vat_rate), wh_rate: fromPercent(f.wh_rate) });
-      toast('Tax rules saved');
+      toast(t('Tax rules saved'));
       setErr({});
     } catch (e: any) { setErr(e.fields || {}); toast(e.message, 'error'); }
   };
   return (
     <div className="cp-tax">
-      <Card title="Tax rules" actions={canEdit && <button className="btn btn-primary" onClick={save}>Save tax rules</button>}>
+      <Card title={t('Tax rules')} actions={canEdit && <button className="btn btn-primary" onClick={save}>{t('Save tax rules')}</button>}>
         <fieldset className="cp-fields" disabled={!canEdit}>
         <div className="form-grid">
-          <Field label="VAT rate (%)" error={err.vat_rate}><input type="number" step="any" value={f.vat_rate} onChange={set('vat_rate')} /></Field>
-          <Field label="Withholding rate (%)" error={err.wh_rate}><input type="number" step="any" value={f.wh_rate} onChange={set('wh_rate')} /></Field>
-          <Field label="WH threshold – goods" error={err.wh_goods_threshold} hint="Taxable amount above which WH applies"><input type="number" step="any" value={f.wh_goods_threshold} onChange={set('wh_goods_threshold')} /></Field>
-          <Field label="WH threshold – services" error={err.wh_service_threshold}><input type="number" step="any" value={f.wh_service_threshold} onChange={set('wh_service_threshold')} /></Field>
+          <Field label={t('VAT rate (%)')} error={err.vat_rate}><input type="number" step="any" value={f.vat_rate} onChange={set('vat_rate')} /></Field>
+          <Field label={t('Withholding rate (%)')} error={err.wh_rate}><input type="number" step="any" value={f.wh_rate} onChange={set('wh_rate')} /></Field>
+          <Field label={t('WH threshold – goods')} error={err.wh_goods_threshold} hint={t('Taxable amount above which WH applies')}><input type="number" step="any" value={f.wh_goods_threshold} onChange={set('wh_goods_threshold')} /></Field>
+          <Field label={t('WH threshold – services')} error={err.wh_service_threshold}><input type="number" step="any" value={f.wh_service_threshold} onChange={set('wh_service_threshold')} /></Field>
         </div>
         </fieldset>
-        <p className="small muted">Rate changes apply to transactions saved from now on; existing records keep their stored amounts until edited.</p>
+        <p className="small muted">{t('Rate changes apply to transactions saved from now on; existing records keep their stored amounts until edited.')}</p>
       </Card>
     </div>
   );
@@ -92,6 +94,8 @@ interface ListCardProps {
 function ListCard({ def: rawDef, items, onChange, canEdit }: ListCardProps) {
   const def = { ...rawDef, editable: rawDef.editable && canEdit };
   const toast = useToast();
+  const { t } = useT();
+  const title = t(def.title);
   const [editing, setEditing] = useState<string | null>(null);   // value being renamed
   const [label, setLabel] = useState('');
   const [adding, setAdding] = useState({ value: '', label: '' });
@@ -101,28 +105,28 @@ function ListCard({ def: rawDef, items, onChange, canEdit }: ListCardProps) {
   };
   const enc = (v: unknown) => encodeURIComponent(String(v));
   const add = async () => {
-    if (await call(() => api.post(`/lookups/${def.list}`, adding), `Added to ${def.title}`)) setAdding({ value: '', label: '' });
+    if (await call(() => api.post(`/lookups/${def.list}`, adding), t('Added to {list}', { list: title }))) setAdding({ value: '', label: '' });
   };
   const rename = async (v: string) => {
-    if (await call(() => api.put(`/lookups/${def.list}/${enc(v)}`, { label }), 'Renamed')) setEditing(null);
+    if (await call(() => api.put(`/lookups/${def.list}/${enc(v)}`, { label }), t('Renamed'))) setEditing(null);
   };
 
   return (
     <Card
       title={(
         <div>
-          <h2>{def.title}</h2>
-          <div className="small muted">{def.sheet ? `Setting sheet · column ${def.sheet}` : 'Additional list'}</div>
+          <h2>{title}</h2>
+          <div className="small muted">{def.sheet ? t('Setting sheet · column {col}', { col: def.sheet }) : t('Additional list')}</div>
         </div>
       )}
-      actions={def.editable ? <Badge tone="info">Editable</Badge> : <Badge>Fixed by tax rules</Badge>}
+      actions={def.editable ? <Badge tone="info">{t('Editable')}</Badge> : <Badge>{t('Fixed by tax rules')}</Badge>}
       bodyClass=""
     >
       <table className="lookup-table">
         <thead>
           <tr>
-            {def.numeric && <th style={{ width: 50 }}>ID</th>}
-            <th>{def.numeric ? 'Name' : 'Value'}</th>
+            {def.numeric && <th style={{ width: 50 }}>{t('ID')}</th>}
+            <th>{def.numeric ? t('Name') : t('Value')}</th>
             {def.editable && <th style={{ width: 112 }} />}
           </tr>
         </thead>
@@ -135,23 +139,23 @@ function ListCard({ def: rawDef, items, onChange, canEdit }: ListCardProps) {
                   <input value={label} onChange={(e) => setLabel(e.target.value)} autoFocus
                     onKeyDown={(e) => { if (e.key === 'Enter') rename(it.value); if (e.key === 'Escape') setEditing(null); }} />
                 ) : (
-                  <>{it.label}{def.editable && it.locked && <span className="muted small"> · system</span>}</>
+                  <>{it.label}{def.editable && it.locked && <span className="muted small"> · {t('system')}</span>}</>
                 )}
               </td>
               {def.editable && (
                 <td className="right">
                   {editing === it.value ? (
                     <>
-                      <button className="btn btn-sm btn-primary" onClick={() => rename(it.value)}>Save</button>
-                      <button className="btn btn-sm btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
+                      <button className="btn btn-sm btn-primary" onClick={() => rename(it.value)}>{t('Save')}</button>
+                      <button className="btn btn-sm btn-ghost" onClick={() => setEditing(null)}>{t('Cancel')}</button>
                     </>
                   ) : (
                     <>
-                      <button className="icon-btn neutral" title="Move up" aria-label={`Move ${it.label} up`} disabled={i === 0} onClick={() => call(() => api.post(`/lookups/${def.list}/${enc(it.value)}/move`, { dir: 'up' }))}>▲</button>
-                      <button className="icon-btn neutral" title="Move down" aria-label={`Move ${it.label} down`} disabled={i === items.length - 1} onClick={() => call(() => api.post(`/lookups/${def.list}/${enc(it.value)}/move`, { dir: 'down' }))}>▼</button>
-                      <button className="icon-btn neutral" title="Rename" aria-label={`Rename ${it.label}`} onClick={() => { setEditing(it.value); setLabel(it.label); }}>✎</button>
-                      <button className="icon-btn" title="Remove" aria-label={`Remove ${it.label}`} disabled={it.locked}
-                        onClick={() => confirm(`Remove “${it.label}” from ${def.title}?`) && call(() => api.del(`/lookups/${def.list}/${enc(it.value)}`), 'Removed')}>✕</button>
+                      <button className="icon-btn neutral" title={t('Move up')} aria-label={t('Move {item} up', { item: it.label })} disabled={i === 0} onClick={() => call(() => api.post(`/lookups/${def.list}/${enc(it.value)}/move`, { dir: 'up' }))}>▲</button>
+                      <button className="icon-btn neutral" title={t('Move down')} aria-label={t('Move {item} down', { item: it.label })} disabled={i === items.length - 1} onClick={() => call(() => api.post(`/lookups/${def.list}/${enc(it.value)}/move`, { dir: 'down' }))}>▼</button>
+                      <button className="icon-btn neutral" title={t('Rename')} aria-label={t('Rename {item}', { item: it.label })} onClick={() => { setEditing(it.value); setLabel(it.label); }}>✎</button>
+                      <button className="icon-btn" title={t('Remove')} aria-label={t('Remove {item}', { item: it.label })} disabled={it.locked}
+                        onClick={() => confirm(t('Remove “{item}” from {list}?', { item: it.label, list: title })) && call(() => api.del(`/lookups/${def.list}/${enc(it.value)}`), t('Removed'))}>✕</button>
                     </>
                   )}
                 </td>
@@ -163,13 +167,13 @@ function ListCard({ def: rawDef, items, onChange, canEdit }: ListCardProps) {
           <tfoot>
             <tr>
               {def.numeric && (
-                <td><input value={adding.value} onChange={(e) => setAdding({ ...adding, value: e.target.value })} placeholder="auto" inputMode="numeric" aria-label="New ID" style={{ width: 52 }} /></td>
+                <td><input value={adding.value} onChange={(e) => setAdding({ ...adding, value: e.target.value })} placeholder={t('auto')} inputMode="numeric" aria-label={t('New ID')} style={{ width: 52 }} /></td>
               )}
               <td>
-                <input value={adding.label} onChange={(e) => setAdding({ ...adding, label: e.target.value })} placeholder={`New ${def.title.toLowerCase()}…`}
-                  onKeyDown={(e) => e.key === 'Enter' && adding.label.trim() && add()} aria-label={`New ${def.title}`} />
+                <input value={adding.label} onChange={(e) => setAdding({ ...adding, label: e.target.value })} placeholder={t('New value for {list}…', { list: title })}
+                  onKeyDown={(e) => e.key === 'Enter' && adding.label.trim() && add()} aria-label={t('New value for {list}', { list: title })} />
               </td>
-              <td className="right"><button className="btn btn-sm" disabled={!adding.label.trim()} onClick={add}>+ Add</button></td>
+              <td className="right"><button className="btn btn-sm" disabled={!adding.label.trim()} onClick={add}>+ {t('Add')}</button></td>
             </tr>
           </tfoot>
         )}
@@ -181,6 +185,7 @@ function ListCard({ def: rawDef, items, onChange, canEdit }: ListCardProps) {
 function ListsTab() {
   const lk = useLookups();
   const { can } = useSession();
+  const { t } = useT();
   const isAdmin = can('lookups', 'edit');
   if (!lk.lists.length) return <Loading />;
   const sheetLists = lk.lists.filter((d) => d.sheet);
@@ -188,14 +193,12 @@ function ListsTab() {
   return (
     <>
       <div className="alert alert-info">
-        These are the dropdown lists from the workbook&apos;s <strong>Setting</strong> sheet. Lists that the VAT and withholding
-        calculations depend on are fixed; units of measurement, receipt types, product categories, departments and payment
-        methods can be extended. A value that is already used by a record cannot be removed.
+        {t('These are the dropdown lists from the workbook’s Setting sheet. Lists that the VAT and withholding calculations depend on are fixed; units of measurement, receipt types, product categories, departments and payment methods can be extended. A value that is already used by a record cannot be removed.')}
       </div>
       <div className="lookup-grid">
         {sheetLists.map((d) => <ListCard key={d.list} def={d} items={lk.values[d.list] || []} onChange={lk.set} canEdit={isAdmin} />)}
       </div>
-      <h2 className="mt" style={{ margin: '24px 0 12px' }}>Additional lists</h2>
+      <h2 className="mt" style={{ margin: '24px 0 12px' }}>{t('Additional lists')}</h2>
       <div className="lookup-grid">
         {extra.map((d) => <ListCard key={d.list} def={d} items={lk.values[d.list] || []} onChange={lk.set} canEdit={isAdmin} />)}
       </div>
@@ -215,6 +218,7 @@ interface ExportItem {
 function ExportTab() {
   const { data } = useFetch<SettingsData>('/settings');
   const { isAdmin } = useSession();
+  const { t } = useT();
   // Only the downloads this user's role allows (GET /exports).
   const { data: exportList, error: exportError } = useFetch<ExportItem[]>('/exports');
   const exports = exportList || [];
@@ -223,22 +227,22 @@ function ExportTab() {
   const q = `fy=${period.fy || ''}${period.month !== '' ? `&month=${period.month}` : ''}`;
   return (
     <div className="grid grid-2">
-      <Card title="Export to Excel" actions={<PeriodFilter fy={period.fy} month={period.month} onChange={setPeriod} />}>
+      <Card title={t('Export to Excel')} actions={<PeriodFilter fy={period.fy} month={period.month} onChange={setPeriod} />}>
         <ul className="list-plain">
           {!exportList && <li><Loading error={exportError} /></li>}
-          {exportList && !exports.length && <li className="muted">Your role has no Excel exports.</li>}
+          {exportList && !exports.length && <li className="muted">{t('Your role has no Excel exports.')}</li>}
           {exports.map((x) => (
             <li key={x.id}>
-              <span><strong>{x.label}</strong><div className="small muted">{x.desc}</div></span>
-              <a className="btn btn-sm" href={`/api${x.path}${x.period ? `?${q}` : ''}`}>Download</a>
+              <span><strong>{t(x.label)}</strong><div className="small muted">{x.desc ? t(x.desc) : null}</div></span>
+              <a className="btn btn-sm" href={`/api${x.path}${x.period ? `?${q}` : ''}`}>{t('Download')}</a>
             </li>
           ))}
         </ul>
       </Card>
       {isAdmin && (
-        <Card title="Backup">
-          <p className="small muted" style={{ marginTop: 0 }}>Download a full copy of the database. Keep backups somewhere safe (another drive or cloud storage).</p>
-          <a className="btn" href="/api/backup">Download database backup</a>
+        <Card title={t('Backup')}>
+          <p className="small muted" style={{ marginTop: 0 }}>{t('Download a full copy of the database. Keep backups somewhere safe (another drive or cloud storage).')}</p>
+          <a className="btn" href="/api/backup">{t('Download database backup')}</a>
         </Card>
       )}
     </div>
@@ -313,6 +317,7 @@ interface UserModalProps {
 
 function UserModal({ user, onClose, onSaved }: UserModalProps) {
   const toast = useToast();
+  const { t } = useT();
   const { isAdmin, user: me, can } = useSession();
   // Editing an account is split into two role tasks; a new account needs only users/create.
   const mayUpdateAccount = !user || can('users', 'edit', 'update_user');
@@ -418,10 +423,10 @@ function UserModal({ user, onClose, onSaved }: UserModalProps) {
 
   const save = async () => {
     const problems: Record<string, string> = {};
-    if (!companyAccount && !f.role_id) problems.role_id = 'Choose a role';
-    if (!companyAccount && !f.access_all_parties && !f.party_ids.length) problems.party_ids = 'Choose at least one company, or give access to all companies';
-    if (!user && (f.password || '').length < 8) problems.password = 'At least 8 characters';
-    if (Object.keys(problems).length) { setErr({ ...problems, _: 'Please correct the highlighted fields' }); return; }
+    if (!companyAccount && !f.role_id) problems.role_id = t('Choose a role');
+    if (!companyAccount && !f.access_all_parties && !f.party_ids.length) problems.party_ids = t('Choose at least one company, or give access to all companies');
+    if (!user && (f.password || '').length < 8) problems.password = t('At least 8 characters');
+    if (Object.keys(problems).length) { setErr({ ...problems, _: t('Please correct the highlighted fields') }); return; }
     try {
       const selectedRole = roles.find((r) => String(r.id) === String(f.role_id));
       // Only send what this user may change, so the API doesn't see untouched fields as a change.
@@ -443,8 +448,8 @@ function UserModal({ user, onClose, onSaved }: UserModalProps) {
 
       onSaved(user ? await api.put(`/users/${user.id}`, body) : await api.post('/users', body));
       toast(user
-        ? (f.password ? 'User updated – they must choose a new password at their next sign-in' : 'User updated successfully')
-        : `User ${f.username} created – they choose their own password at first sign-in`);
+        ? (f.password ? t('User updated – they must choose a new password at their next sign-in') : t('User updated successfully'))
+        : t('User {name} created – they choose their own password at first sign-in', { name: f.username }));
       onClose();
     } catch (e: any) {
       setErr({ ...(e.fields || {}), _: e.message });
@@ -453,38 +458,38 @@ function UserModal({ user, onClose, onSaved }: UserModalProps) {
 
   const roleOptions = roles.map((r) => ({
     value: String(r.id),
-    label: `${r.label}${r.description ? ` (${r.description})` : ''}`,
+    label: `${t(r.label)}${r.description ? ` (${t(r.description)})` : ''}`,
   }));
 
   return (
     <Modal
       width={720}
       icon="users"
-      title={user ? `Edit ${user.username}` : 'New user'}
-      subtitle={user ? 'Update role, password and company access' : 'Create a sign-in and choose what this person can access'}
+      title={user ? t('Edit {name}', { name: user.username }) : t('New user')}
+      subtitle={user ? t('Update role, password and company access') : t('Create a sign-in and choose what this person can access')}
       onClose={onClose}
       footer={
         <>
-          <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={save}>{user ? 'Save changes' : 'Create user'}</button>
+          <button className="btn" onClick={onClose}>{t('Cancel')}</button>
+          <button className="btn btn-primary" onClick={save}>{user ? t('Save changes') : t('Create user')}</button>
         </>
       }
     >
       {err._ && <div className="alert alert-error">{err._}</div>}
       <div className="form-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))', marginBottom: 16 }}>
         {!user && (
-          <Field label="User name" required error={err.username} hint="Used to sign in">
+          <Field label={t('User name')} required error={err.username} hint={t('Used to sign in')}>
             <input value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} autoFocus />
           </Field>
         )}
-        <Field label="Full name" required error={err.full_name} className={user ? 'span-4' : ''}>
+        <Field label={t('Full name')} required error={err.full_name} className={user ? 'span-4' : ''}>
           <input value={f.full_name} onChange={(e) => setF({ ...f, full_name: e.target.value })} disabled={!mayUpdateAccount} />
         </Field>
         {!companyAccount && (
-        <Field label="Role" required className="span-4" error={err.role_id} hint="Decides the menus, pages and actions this user gets">
+        <Field label={t('Role')} required className="span-4" error={err.role_id} hint={t('Decides the menus, pages and actions this user gets')}>
           <Select
             options={roleOptions}
-            placeholder={rolesData ? 'Choose a role' : 'Loading roles…'}
+            placeholder={rolesData ? t('Choose a role') : t('Loading roles…')}
             value={String(f.role_id)}
             disabled={!mayAssign}
             onChange={(v) => {
@@ -495,9 +500,9 @@ function UserModal({ user, onClose, onSaved }: UserModalProps) {
         </Field>
         )}
         {user && (
-          <Field label="Account Status">
+          <Field label={t('Account Status')}>
             <Select
-              options={[{ value: '1', label: 'Active' }, { value: '0', label: 'Inactive / pending' }]}
+              options={[{ value: '1', label: t('Active') }, { value: '0', label: t('Inactive / pending') }]}
               value={f.active ? '1' : '0'}
               disabled={!mayUpdateAccount}
               onChange={(v) => setF({ ...f, active: v === '1' })}
@@ -505,12 +510,12 @@ function UserModal({ user, onClose, onSaved }: UserModalProps) {
           </Field>
         )}
         <Field
-          label={user ? 'New password' : 'Password'}
+          label={user ? t('New password') : t('Password')}
           required={!user}
           error={err.password}
           hint={user
-            ? 'Leave empty to keep the current password. A new one is temporary: the user must change it at the next sign-in.'
-            : 'Temporary – the user must choose their own password at first sign-in. Give it to them privately.'}
+            ? t('Leave empty to keep the current password. A new one is temporary: the user must change it at the next sign-in.')
+            : t('Temporary – the user must choose their own password at first sign-in. Give it to them privately.')}
           className={user ? '' : 'span-4'}
         >
           <div className="row" style={{ flexWrap: 'nowrap' }}>
@@ -520,25 +525,25 @@ function UserModal({ user, onClose, onSaved }: UserModalProps) {
               value={f.password}
               disabled={!mayUpdateAccount}
               onChange={(e) => setF({ ...f, password: e.target.value })}
-              placeholder={user ? 'Leave empty to keep current' : 'At least 8 characters'}
+              placeholder={user ? t('Leave empty to keep current') : t('At least 8 characters')}
             />
-            <button type="button" className="btn" disabled={!mayUpdateAccount} onClick={() => setF({ ...f, password: generatePassword() })} title="Generate a random temporary password">Generate</button>
+            <button type="button" className="btn" disabled={!mayUpdateAccount} onClick={() => setF({ ...f, password: generatePassword() })} title={t('Generate a random temporary password')}>{t('Generate')}</button>
           </div>
         </Field>
       </div>
 
       {!companyAccount && (
       <fieldset disabled={!mayAssign} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, opacity: mayAssign ? 1 : 0.6 }}
-        title={mayAssign ? undefined : 'Your role cannot assign roles or company access'}>
+        title={mayAssign ? undefined : t('Your role cannot assign roles or company access')}>
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 8 }}>
-        <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>Company & Supplier Access</h3>
+        <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>{t('Company & Supplier Access')}</h3>
         <p className="small muted" style={{ margin: '0 0 12px' }}>
-          Assign whether this user has access to all companies or is restricted to specific suppliers/customers.
+          {t('Assign whether this user has access to all companies or is restricted to specific suppliers/customers.')}
         </p>
 
         {err.party_ids && <div className="alert alert-error" style={{ marginBottom: 12 }}>{err.party_ids}</div>}
         <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: restrictedActor ? 'not-allowed' : 'pointer', marginBottom: 14, fontWeight: 600, opacity: restrictedActor ? 0.6 : 1 }}
-          title={restrictedActor ? 'You can only give access to the companies assigned to you' : ''}>
+          title={restrictedActor ? t('You can only give access to the companies assigned to you') : ''}>
           <input
             type="checkbox"
             className="perm-check"
@@ -546,7 +551,7 @@ function UserModal({ user, onClose, onSaved }: UserModalProps) {
             disabled={restrictedActor}
             onChange={(e) => setF({ ...f, access_all_parties: e.target.checked })}
           />
-          <span>Full Access to All Companies & Suppliers (Unrestricted)</span>
+          <span>{t('Full Access to All Companies & Suppliers (Unrestricted)')}</span>
         </label>
 
         {!f.access_all_parties && (
@@ -554,29 +559,29 @@ function UserModal({ user, onClose, onSaved }: UserModalProps) {
             <div className="party-picker-head">
               <input
                 type="search"
-                placeholder="Search suppliers & customers by name or TIN…"
+                placeholder={t('Search suppliers & customers by name or TIN…')}
                 value={partySearch}
                 onChange={(e) => setPartySearch(e.target.value)}
                 style={{ flex: 1, minWidth: 200, padding: '5px 9px' }}
               />
               <div className="row" style={{ gap: 4 }}>
-                {['All', 'Supplier', 'Customer'].map((t) => (
+                {['All', 'Supplier', 'Customer'].map((pt) => (
                   <button
-                    key={t}
+                    key={pt}
                     type="button"
-                    className={`btn btn-sm ${partyTypeFilter === t ? 'btn-primary' : 'btn-ghost'}`}
-                    onClick={() => setPartyTypeFilter(t)}
+                    className={`btn btn-sm ${partyTypeFilter === pt ? 'btn-primary' : 'btn-ghost'}`}
+                    onClick={() => setPartyTypeFilter(pt)}
                   >
-                    {t === 'All' ? 'All' : `${t}s`}
+                    {pt === 'All' ? t('All') : t(`${pt}s`)}
                   </button>
                 ))}
               </div>
               <div className="row" style={{ gap: 4 }}>
                 <button type="button" className="btn btn-sm btn-ghost" onClick={selectAllFiltered}>
-                  Select Filtered
+                  {t('Select Filtered')}
                 </button>
                 <button type="button" className="btn btn-sm btn-ghost" onClick={clearParties}>
-                  Clear
+                  {t('Clear')}
                 </button>
               </div>
             </div>
@@ -584,7 +589,7 @@ function UserModal({ user, onClose, onSaved }: UserModalProps) {
             <div className="party-picker-list">
               {!filteredParties.length ? (
                 <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '24px 0', color: 'var(--muted)' }}>
-                  No companies found matching search.
+                  {t('No companies found matching search.')}
                 </div>
               ) : (
                 filteredParties.map((p) => {
@@ -599,14 +604,14 @@ function UserModal({ user, onClose, onSaved }: UserModalProps) {
                         type="checkbox"
                         checked={isChecked}
                         onChange={() => {}}
-                        aria-label={`Select ${p.name}`}
+                        aria-label={t('Select {name}', { name: p.name })}
                       />
                       <div className="party-picker-info">
                         <div className="party-picker-name" title={p.name}>{p.name}</div>
                         <div className="party-picker-meta">
-                          {p.tin ? <span>TIN {p.tin}</span> : <span>No TIN</span>}
+                          {p.tin ? <span>{t('TIN')} {p.tin}</span> : <span>{t('No TIN')}</span>}
                           <span>·</span>
-                          <span>{p.type}</span>
+                          <span>{t(p.type)}</span>
                         </div>
                       </div>
                     </div>
@@ -615,8 +620,8 @@ function UserModal({ user, onClose, onSaved }: UserModalProps) {
               )}
             </div>
             <div style={{ padding: '8px 14px', background: 'var(--surface-2)', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-              <span className="muted">{f.party_ids.length} compan{f.party_ids.length === 1 ? 'y' : 'ies'} assigned</span>
-              <span className="muted">{parties.length} total registered</span>
+              <span className="muted">{f.party_ids.length === 1 ? t('1 company assigned') : t('{n} companies assigned', { n: f.party_ids.length })}</span>
+              <span className="muted">{t('{n} total registered', { n: parties.length })}</span>
             </div>
           </div>
         )}
@@ -624,13 +629,13 @@ function UserModal({ user, onClose, onSaved }: UserModalProps) {
         {!f.access_all_parties && f.party_ids.length > 0 && (
           <div className="company-rights">
             <div className="company-rights-head">
-              <strong>Rights for each company</strong>
-              <span className="small muted">What this user may do with each company&apos;s records – on top of what the role allows.</span>
+              <strong>{t('Rights for each company')}</strong>
+              <span className="small muted">{t('What this user may do with each company’s records – on top of what the role allows.')}</span>
             </div>
             <div className="table-wrap">
               <table>
                 <thead>
-                  <tr><th>Company</th>{COMPANY_RIGHTS.map((r) => <th key={r.id} className="center">{r.label}</th>)}</tr>
+                  <tr><th>{t('Company')}</th>{COMPANY_RIGHTS.map((r) => <th key={r.id} className="center">{t(r.label)}</th>)}</tr>
                 </thead>
                 <tbody>
                   {f.party_ids.map((id) => {
@@ -639,12 +644,12 @@ function UserModal({ user, onClose, onSaved }: UserModalProps) {
                     const mayGive = giveable(id);
                     return (
                       <tr key={id}>
-                        <td className="wrap"><strong>{p?.name || `Company #${id}`}</strong>{p?.tin && <div className="small muted">TIN {p.tin}</div>}</td>
+                        <td className="wrap"><strong>{p?.name || t('Company #{id}', { id })}</strong>{p?.tin && <div className="small muted">{t('TIN')} {p.tin}</div>}</td>
                         {COMPANY_RIGHTS.map((r) => (
                           <td key={r.id} className="center">
-                            <input type="checkbox" className="perm-check" aria-label={`${r.label} – ${p?.name || id}`}
+                            <input type="checkbox" className="perm-check" aria-label={`${t(r.label)} – ${p?.name || id}`}
                               checked={!!rights[r.id]} disabled={r.id === 'view' || !mayGive[r.id]}
-                              title={r.id === 'view' ? 'Always included – remove the company to take access away' : !mayGive[r.id] ? 'You do not have this right for this company' : ''}
+                              title={r.id === 'view' ? t('Always included – remove the company to take access away') : !mayGive[r.id] ? t('You do not have this right for this company') : ''}
                               onChange={(e) => setRight(id, r.id, e.target.checked)} />
                           </td>
                         ))}
@@ -666,23 +671,24 @@ function UserModal({ user, onClose, onSaved }: UserModalProps) {
 function UsersTab() {
   const toast = useToast();
   const { user: me, can, isAdmin } = useSession();
+  const { t } = useT();
   const { data, error, setData } = useFetch<UserRow[]>('/users');
   const [editing, setEditing] = useState<UserRow | Record<string, never> | null>(null);
 
   const activate = async (u: UserRow) => {
     try {
       setData((await api.put(`/users/${u.id}`, { active: true })) as any);
-      toast(`${u.username} activated`);
+      toast(t('{name} activated', { name: u.username }));
     } catch (e: any) {
       toast(e.message, 'error');
     }
   };
 
   const remove = async (u: UserRow) => {
-    if (!confirm(`Delete user ${u.username}?`)) return;
+    if (!confirm(t('Delete user {name}?', { name: u.username }))) return;
     try {
       setData((await api.del(`/users/${u.id}`)) as any);
-      toast('User deleted');
+      toast(t('User deleted'));
     } catch (e: any) {
       toast(e.message, 'error');
     }
@@ -691,52 +697,52 @@ function UsersTab() {
   const pending = (data || []).filter((u) => !u.active).length;
 
   return (
-    <Card bodyClass="" title="Users" actions={can('users', 'create') && <button className="btn btn-primary" onClick={() => setEditing({})}>+ New user</button>}>
-      {pending > 0 && <div className="alert alert-info" style={{ margin: 16 }}>{pending} account{pending > 1 ? 's are' : ' is'} waiting for approval.</div>}
+    <Card bodyClass="" title={t('Users')} actions={can('users', 'create') && <button className="btn btn-primary" onClick={() => setEditing({})}>+ {t('New user')}</button>}>
+      {pending > 0 && <div className="alert alert-info" style={{ margin: 16 }}>{pending > 1 ? t('{n} accounts are waiting for approval.', { n: pending }) : t('1 account is waiting for approval.')}</div>}
       {!data ? <Loading error={error} /> : (
         <table>
           <thead>
             <tr>
-              <th>User name</th>
-              <th>Full name</th>
-              <th>Role</th>
-              <th>Company Access</th>
-              <th>Status</th>
-              <th>Last sign-in</th>
-              <th>Created</th>
+              <th>{t('User name')}</th>
+              <th>{t('Full name')}</th>
+              <th>{t('Role')}</th>
+              <th>{t('Company Access')}</th>
+              <th>{t('Status')}</th>
+              <th>{t('Last sign-in')}</th>
+              <th>{t('Created')}</th>
               <th />
             </tr>
           </thead>
           <tbody>
             {data.map((u) => (
               <tr key={u.id}>
-                <td><strong>{u.username}</strong>{u.id === me?.id && <span className="muted small"> (you)</span>}</td>
+                <td><strong>{u.username}</strong>{u.id === me?.id && <span className="muted small"> ({t('you')})</span>}</td>
                 <td>{u.full_name}</td>
                 <td>
                   <Badge tone={u.role === 'admin' ? 'info' : 'neutral'}>
-                    {u.role_label || (u.role === 'admin' ? 'Administrator' : 'User')}
+                    {t(u.role_label || (u.role === 'admin' ? 'Administrator' : 'User'))}
                   </Badge>
                 </td>
                 <td>
                   {u.party_id ? (
-                    <span className="small"><Badge tone="info">Own company only</Badge> {u.company_name}{u.must_change_password && <span className="muted"> · must set password</span>}</span>
+                    <span className="small"><Badge tone="info">{t('Own company only')}</Badge> {u.company_name}{u.must_change_password && <span className="muted"> · {t('must set password')}</span>}</span>
                   ) : u.access_all_parties ? (
-                    <Badge tone="good">All Companies (Full Access)</Badge>
+                    <Badge tone="good">{t('All Companies (Full Access)')}</Badge>
                   ) : (
-                    <span title={u.assigned_parties?.map((p) => `${p.name}: ${Object.entries(p.rights || {}).filter(([, on]) => on).map(([r]) => r).join(', ') || 'view'}`).join(' · ')}>
+                    <span title={u.assigned_parties?.map((p) => `${p.name}: ${Object.entries(p.rights || {}).filter(([, on]) => on).map(([r]) => t(r[0].toUpperCase() + r.slice(1))).join(', ') || t('View')}`).join(' · ')}>
                       <Badge tone="warn">
-                        {u.assigned_parties?.length || 0} Compan{u.assigned_parties?.length === 1 ? 'y' : 'ies'}
+                        {(u.assigned_parties?.length || 0) === 1 ? t('1 Company') : t('{n} Companies', { n: u.assigned_parties?.length || 0 })}
                       </Badge>
                     </span>
                   )}
                 </td>
-                <td>{u.active ? <Badge tone="good">Active</Badge> : <Badge tone="warn">Pending</Badge>}</td>
-                <td>{u.last_login ? date(u.last_login) : <span className="muted">Never</span>}</td>
+                <td>{u.active ? <Badge tone="good">{t('Active')}</Badge> : <Badge tone="warn">{t('Pending')}</Badge>}</td>
+                <td>{u.last_login ? date(u.last_login) : <span className="muted">{t('Never')}</span>}</td>
                 <td>{date(u.created_at)}</td>
                 <td className="right">
-                  {!u.active && can('users', 'edit', 'update_user') && <button className="btn btn-sm btn-primary" onClick={() => activate(u)}>Activate</button>}
-                  {(can('users', 'edit', 'update_user') || can('users', 'edit', 'assign_roles_companies')) && (isAdmin || u.role !== 'admin') && <button className="btn btn-sm btn-ghost" onClick={() => setEditing(u)}>Edit</button>}
-                  {can('users', 'delete') && (isAdmin || u.role !== 'admin') && <button className="btn btn-sm btn-ghost" onClick={() => remove(u)} disabled={u.id === me?.id}>Delete</button>}
+                  {!u.active && can('users', 'edit', 'update_user') && <button className="btn btn-sm btn-primary" onClick={() => activate(u)}>{t('Activate')}</button>}
+                  {(can('users', 'edit', 'update_user') || can('users', 'edit', 'assign_roles_companies')) && (isAdmin || u.role !== 'admin') && <button className="btn btn-sm btn-ghost" onClick={() => setEditing(u)}>{t('Edit')}</button>}
+                  {can('users', 'delete') && (isAdmin || u.role !== 'admin') && <button className="btn btn-sm btn-ghost" onClick={() => remove(u)} disabled={u.id === me?.id}>{t('Delete')}</button>}
                 </td>
               </tr>
             ))}
@@ -789,6 +795,7 @@ interface RoleModalProps {
 
 function RoleModal({ role, onClose, onSaved }: RoleModalProps) {
   const toast = useToast();
+  const { t } = useT();
   const { isAdmin: mayEdit } = useSession();
   const { data: resData } = useFetch<RoleResourcesResponse>('/roles/resources');
   // Resources (with their tasks) and the right columns come from GET /roles/resources.
@@ -923,7 +930,7 @@ function RoleModal({ role, onClose, onSaved }: RoleModalProps) {
       const res = role
         ? await api.put(`/roles/${role.id}`, body)
         : await api.post('/roles', body);
-      toast(role ? 'Role updated successfully' : 'Role created successfully');
+      toast(role ? t('Role updated successfully') : t('Role created successfully'));
       onSaved(res);
       onClose();
     } catch (e: any) {
@@ -934,44 +941,44 @@ function RoleModal({ role, onClose, onSaved }: RoleModalProps) {
   return (
     <Modal
       width={1020}
-      title={role ? `Edit Role: ${role.label}` : 'New Role'}
+      title={role ? t('Edit Role: {name}', { name: t(role.label) }) : t('New Role')}
       onClose={onClose}
       footer={
         <>
-          <button className="btn" onClick={onClose}>Cancel</button>
-          {mayEdit && role?.name !== 'admin' && <button className="btn btn-primary" onClick={save}>Save Role</button>}
+          <button className="btn" onClick={onClose}>{t('Cancel')}</button>
+          {mayEdit && role?.name !== 'admin' && <button className="btn btn-primary" onClick={save}>{t('Save Role')}</button>}
         </>
       }
     >
       {err._ && <div className="alert alert-error">{err._}</div>}
 
       <div className="form-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))', marginBottom: 16 }}>
-        <Field label="Role Label" required error={err.label} hint="Display title for this role">
+        <Field label={t('Role Label')} required error={err.label} hint={t('Display title for this role')}>
           <input
             value={f.label}
             onChange={(e) => setF({ ...f, label: e.target.value })}
-            placeholder="e.g. Senior Auditor, Procurement Officer"
+            placeholder={t('e.g. Senior Auditor, Procurement Officer')}
             autoFocus
           />
         </Field>
         <Field
-          label="Role Code"
+          label={t('Role Code')}
           required
           error={err.name}
-          hint={isSystem ? 'System identifier (fixed)' : 'Unique identifier (letters, numbers, _) '}
+          hint={isSystem ? t('System identifier (fixed)') : t('Unique identifier (letters, numbers, _)')}
         >
           <input
             value={f.name}
             onChange={(e) => setF({ ...f, name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_') })}
-            placeholder="e.g. auditor, purchase_lead"
+            placeholder={t('e.g. auditor, purchase_lead')}
             disabled={isSystem}
           />
         </Field>
-        <Field label="Description" className="span-4" hint="Brief explanation of responsibilities and permissions">
+        <Field label={t('Description')} className="span-4" hint={t('Brief explanation of responsibilities and permissions')}>
           <input
             value={f.description}
             onChange={(e) => setF({ ...f, description: e.target.value })}
-            placeholder="e.g. Manage user accounts, credentials, and company access..."
+            placeholder={t('e.g. Manage user accounts, credentials, and company access...')}
           />
         </Field>
       </div>
@@ -980,21 +987,21 @@ function RoleModal({ role, onClose, onSaved }: RoleModalProps) {
         <div className="role-perm-head-bar">
           <div className="role-perm-title-group">
             <span className="role-perm-bullet" />
-            <h2 className="role-perm-title">Role & access permissions</h2>
+            <h2 className="role-perm-title">{t('Role & access permissions')}</h2>
           </div>
           {!isAdminRole && (
             <div className="role-perm-presets">
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setPreset('all')}>Select All</button>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setPreset('readonly')}>Read-Only</button>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setPreset('tx')}>Transactions</button>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setPreset('clear')}>Clear All</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setPreset('all')}>{t('Select All')}</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setPreset('readonly')}>{t('Read-Only')}</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setPreset('tx')}>{t('Transactions')}</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setPreset('clear')}>{t('Clear All')}</button>
             </div>
           )}
         </div>
 
         {isAdminRole && (
           <div className="alert alert-info" style={{ margin: '4px 0 10px 0' }}>
-            <strong>Administrator Role:</strong> System administrator has full unrestricted permissions across all resources.
+            <strong>{t('Administrator Role:')}</strong> {t('System administrator has full unrestricted permissions across all resources.')}
           </div>
         )}
 
@@ -1003,7 +1010,7 @@ function RoleModal({ role, onClose, onSaved }: RoleModalProps) {
             <thead>
               <tr>
                 <th className="role-perm-th">
-                  <span className="role-perm-th-label">MODULE / RESOURCE</span>
+                  <span className="role-perm-th-label">{t('MODULE / RESOURCE')}</span>
                 </th>
                 {rights.map((rt) => {
                   const isColumnAllChecked = resources.length > 0 && resources.every((r) => f.permissions[r.id]?.[rt.id]);
@@ -1016,7 +1023,7 @@ function RoleModal({ role, onClose, onSaved }: RoleModalProps) {
                           disabled={isAdminRole}
                           onChange={() => toggleColumn(rt.id)}
                         />
-                        <span>{rt.label}</span>
+                        <span>{t(rt.label)}</span>
                       </label>
                     </th>
                   );
@@ -1033,23 +1040,23 @@ function RoleModal({ role, onClose, onSaved }: RoleModalProps) {
                   <Fragment key={res.id}>
                     <tr className={`role-perm-row ${isExpanded ? 'role-perm-row-expanded' : ''}`}>
                       <td className="role-perm-td-res">
-                        <div className="role-perm-res-title">{res.name}</div>
+                        <div className="role-perm-res-title">{t(res.name)}</div>
                         <button
                           type="button"
                           className="role-perm-accordion-toggle"
                           onClick={() => toggleAccordion(res.id)}
-                          title="Click to view granular tasks & actions"
+                          title={t('Click to view granular tasks & actions')}
                         >
                           <span className={`role-perm-chevron-circle ${isExpanded ? 'open' : ''}`}>
                             ›
                           </span>
-                          <span className="role-perm-res-desc">{res.description}</span>
+                          <span className="role-perm-res-desc">{res.description ? t(res.description) : null}</span>
                         </button>
 
                         {isExpanded && (
                           <div className="role-perm-granular-container">
                             <div className="role-perm-granular-header">
-                              Granular tasks & actions:
+                              {t('Granular tasks & actions:')}
                             </div>
                             <div className="role-perm-granular-grid">
                               {tasks.map((task) => {
@@ -1062,7 +1069,7 @@ function RoleModal({ role, onClose, onSaved }: RoleModalProps) {
                                       disabled={isAdminRole}
                                       onChange={() => toggleGranularTask(res.id, task)}
                                     />
-                                    <span>{task.label}</span>
+                                    <span>{t(task.label)}</span>
                                   </label>
                                 );
                               })}
@@ -1100,23 +1107,24 @@ function RoleModal({ role, onClose, onSaved }: RoleModalProps) {
 function RolesTab() {
   const toast = useToast();
   const { isAdmin } = useSession();
+  const { t } = useT();
   const { data, error, setData } = useFetch<Role[]>('/roles');
   const [editing, setEditing] = useState<Role | Record<string, never> | null>(null);
 
   const remove = async (r: Role) => {
     if (r.is_system) {
-      toast('System roles cannot be deleted', 'error');
+      toast(t('System roles cannot be deleted'), 'error');
       return;
     }
     if ((r.user_count || 0) > 0) {
-      toast(`Cannot delete role: ${r.user_count} user(s) are assigned to it`, 'error');
+      toast(t('Cannot delete role: {n} user(s) are assigned to it', { n: r.user_count }), 'error');
       return;
     }
-    if (!confirm(`Delete role "${r.label}"?`)) return;
+    if (!confirm(t('Delete role "{name}"?', { name: t(r.label) }))) return;
     try {
       await api.del(`/roles/${r.id}`);
       setData((prev) => (prev || []).filter((item) => item.id !== r.id));
-      toast('Role deleted');
+      toast(t('Role deleted'));
     } catch (e: any) {
       toast(e.message, 'error');
     }
@@ -1138,12 +1146,12 @@ function RolesTab() {
   return (
     <Card
       bodyClass=""
-      title="Roles & Permissions"
-      actions={isAdmin ? <button className="btn btn-primary" onClick={() => setEditing({})}>+ New role</button> : <span className="small muted">Only administrators can change roles</span>}
+      title={t('Roles & Permissions')}
+      actions={isAdmin ? <button className="btn btn-primary" onClick={() => setEditing({})}>+ {t('New role')}</button> : <span className="small muted">{t('Only administrators can change roles')}</span>}
     >
       <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)', background: 'var(--surface-2)' }}>
         <p className="small muted" style={{ margin: 0 }}>
-          Manage access levels and fine-grained permissions for users. Built-in system roles provide standard profiles, while custom roles allow assigning exact rights per resource table (View, Create, Edit, Delete, Export).
+          {t('Manage access levels and fine-grained permissions for users. Built-in system roles provide standard profiles, while custom roles allow assigning exact rights per resource table (View, Create, Edit, Delete, Export).')}
         </p>
       </div>
 
@@ -1153,11 +1161,11 @@ function RolesTab() {
         <table>
           <thead>
             <tr>
-              <th>Role</th>
-              <th>Code</th>
-              <th>Description</th>
-              <th>Users</th>
-              <th>Type</th>
+              <th>{t('Role')}</th>
+              <th>{t('Code')}</th>
+              <th>{t('Description')}</th>
+              <th>{t('Users')}</th>
+              <th>{t('Type')}</th>
               <th />
             </tr>
           </thead>
@@ -1165,30 +1173,30 @@ function RolesTab() {
             {data.map((r) => (
               <tr key={r.id}>
                 <td>
-                  <strong>{r.label}</strong>
+                  <strong>{t(r.label)}</strong>
                 </td>
                 <td className="muted small font-mono">{r.name}</td>
-                <td className="wrap">{r.description || <span className="muted">—</span>}</td>
+                <td className="wrap">{r.description ? t(r.description) : <span className="muted">—</span>}</td>
                 <td>
                   <Badge tone={(r.user_count || 0) > 0 ? 'good' : 'neutral'}>
-                    {r.user_count} {r.user_count === 1 ? 'user' : 'users'}
+                    {r.user_count === 1 ? t('1 user') : t('{n} users', { n: r.user_count ?? 0 })}
                   </Badge>
                 </td>
                 <td>
-                  {r.is_system ? <Badge tone="info">System</Badge> : <Badge tone="neutral">Custom</Badge>}
+                  {r.is_system ? <Badge tone="info">{t('System')}</Badge> : <Badge tone="neutral">{t('Custom')}</Badge>}
                 </td>
                 <td className="right">
                   <button className="btn btn-sm btn-ghost" onClick={() => setEditing(r)}>
-                    {r.name === 'admin' || !isAdmin ? 'View' : 'Edit'}
+                    {r.name === 'admin' || !isAdmin ? t('View') : t('Edit')}
                   </button>
                   {!r.is_system && isAdmin && (
                     <button
                       className="btn btn-sm btn-ghost"
                       onClick={() => remove(r)}
                       disabled={(r.user_count || 0) > 0}
-                      title={(r.user_count || 0) > 0 ? 'Cannot delete role with assigned users' : 'Delete role'}
+                      title={(r.user_count || 0) > 0 ? t('Cannot delete role with assigned users') : t('Delete role')}
                     >
-                      Delete
+                      {t('Delete')}
                     </button>
                   )}
                 </td>
@@ -1213,9 +1221,9 @@ function RolesTab() {
 // ---------------------------------------------------------------------------
 const ACTION_TONE: Record<string, string | undefined> = { create: 'good', update: 'info', delete: 'bad', other: undefined };
 
-const fmtVal = (v: unknown) => {
+const fmtVal = (v: unknown, t: (s: string) => string) => {
   if (v === null || v === undefined || v === '') return <span className="muted">—</span>;
-  if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+  if (typeof v === 'boolean') return v ? t('Yes') : t('No');
   return String(v);
 };
 
@@ -1238,16 +1246,17 @@ interface ActivityEntry {
 
 /** Union of before/after keys, one row per field; complex (object/array) values fall back to JSON. */
 function ChangesModal({ entry, onClose }: { entry: ActivityEntry; onClose: () => void }) {
+  const { t } = useT();
   const before = entry.before || {};
   const after = entry.after || {};
   const keys = Array.from(new Set([...Object.keys(before), ...Object.keys(after)]));
   return (
-    <Modal title="Changes" subtitle={entry.summary} icon="clock" onClose={onClose} width={720}
-      footer={<button className="btn" onClick={onClose}>Close</button>}>
-      {!keys.length ? <div className="empty">No field-level changes recorded for this entry.</div> : (
+    <Modal title={t('Changes')} subtitle={entry.summary} icon="clock" onClose={onClose} width={720}
+      footer={<button className="btn" onClick={onClose}>{t('Close')}</button>}>
+      {!keys.length ? <div className="empty">{t('No field-level changes recorded for this entry.')}</div> : (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead>
+            <thead><tr><th>{t('Field')}</th><th>{t('Before')}</th><th>{t('After')}</th></tr></thead>
             <tbody>
               {keys.map((k) => {
                 const bv = before[k];
@@ -1258,9 +1267,9 @@ function ChangesModal({ entry, onClose }: { entry: ActivityEntry; onClose: () =>
                   if (complex) {
                     return v && typeof v === 'object'
                       ? <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify(v, null, 2)}</pre>
-                      : fmtVal(v);
+                      : fmtVal(v, t);
                   }
-                  return fmtVal(v);
+                  return fmtVal(v, t);
                 };
                 return (
                   <tr key={k} style={!changed ? { opacity: 0.55 } : undefined}>
@@ -1282,38 +1291,39 @@ function ChangesModal({ entry, onClose }: { entry: ActivityEntry; onClose: () =>
 
 function ActivityTab() {
   // Areas the log records, for the filter and the "Area" column (GET /audit/entities).
+  const { t } = useT();
   const { data: entities } = useFetch<EntityDef[]>('/audit/entities');
   const entityLabel = Object.fromEntries((entities || []).map((e) => [e.id, e.label]));
   const [q, setQ] = useState('');
   const [entity, setEntity] = useState('');
   const [search, setSearch] = useState('');
-  useEffect(() => { const t = setTimeout(() => setSearch(q), 250); return () => clearTimeout(t); }, [q]);
+  useEffect(() => { const timer = setTimeout(() => setSearch(q), 250); return () => clearTimeout(timer); }, [q]);
   const { data, error } = useFetch<ActivityEntry[]>(`/audit?limit=500${entity ? `&entity=${entity}` : ''}${search ? `&q=${encodeURIComponent(search)}` : ''}`);
   const [viewing, setViewing] = useState<ActivityEntry | null>(null);
   return (
     <Card fill bodyClass="" title={(
       <div className="row">
-        <input type="search" placeholder="Search activity or user…" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />
-        <select value={entity} onChange={(e) => setEntity(e.target.value)} aria-label="Area">
-          <option value="">All areas</option>
-          {(entities || []).map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}
+        <input type="search" placeholder={t('Search activity or user…')} value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />
+        <select value={entity} onChange={(e) => setEntity(e.target.value)} aria-label={t('Area')}>
+          <option value="">{t('All areas')}</option>
+          {(entities || []).map((e) => <option key={e.id} value={e.id}>{t(e.label)}</option>)}
         </select>
       </div>
-    )} actions={<span className="small muted">Latest 500 entries</span>}>
-      {!data ? <Loading error={error} /> : !data.length ? <div className="empty">No activity recorded yet.</div> : (
+    )} actions={<span className="small muted">{t('Latest 500 entries')}</span>}>
+      {!data ? <Loading error={error} /> : !data.length ? <div className="empty">{t('No activity recorded yet.')}</div> : (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>When</th><th>User</th><th>Action</th><th>Area</th><th>What happened</th><th /></tr></thead>
+            <thead><tr><th>{t('When')}</th><th>{t('User')}</th><th>{t('Action')}</th><th>{t('Area')}</th><th>{t('What happened')}</th><th /></tr></thead>
             <tbody>
               {data.map((a) => (
                 <tr key={a.id}>
-                  <td className="small">{new Date(`${a.at.replace(' ', 'T')}Z`).toLocaleString()}</td>
+                  <td className="small">{dateTime(a.at)}</td>
                   <td>{a.username || <span className="muted">—</span>}</td>
-                  <td><Badge tone={ACTION_TONE[a.action]}>{a.action}</Badge></td>
-                  <td className="small">{entityLabel[a.entity] || a.entity}</td>
+                  <td><Badge tone={ACTION_TONE[a.action]}>{t(a.action)}</Badge></td>
+                  <td className="small">{t(entityLabel[a.entity] || a.entity)}</td>
                   <td className="wrap">{a.summary}</td>
                   <td className="right">
-                    {(a.before || a.after) && <button className="btn btn-sm btn-ghost" onClick={() => setViewing(a)}>View changes</button>}
+                    {(a.before || a.after) && <button className="btn btn-sm btn-ghost" onClick={() => setViewing(a)}>{t('View changes')}</button>}
                   </td>
                 </tr>
               ))}
@@ -1331,15 +1341,16 @@ function Settings() {
   const params = useSearchParams();
   const router = useRouter();
   const { user } = useSession();
+  const { t } = useT();
   const tabs = settingsTabsFor(user);
-  const tab = tabs.some((t) => t.id === params.get('tab')) ? params.get('tab') : tabs[0]?.id;
+  const tab = tabs.some((x) => x.id === params.get('tab')) ? params.get('tab') : tabs[0]?.id;
   if (!user) return null;
   return (
     <>
-      <PageHeader title="Settings" subtitle="Company details, tax rules, dropdown lists and data export" />
+      <PageHeader title={t('Settings')} subtitle={t('Company details, tax rules, dropdown lists and data export')} />
       <div className="tabs">
-        {tabs.map((t) => (
-          <button key={t.id} className={`tab ${tab === t.id ? 'active' : ''}`} onClick={() => router.replace(`/settings?tab=${t.id}`)}>{t.label}</button>
+        {tabs.map((x) => (
+          <button key={x.id} className={`tab ${tab === x.id ? 'active' : ''}`} onClick={() => router.replace(`/settings?tab=${x.id}`)}>{t(x.label)}</button>
         ))}
       </div>
       {tab === 'company' && <CompanyTab />}
